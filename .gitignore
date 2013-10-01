@@ -1,0 +1,55 @@
+# autoconf, automake files
+depcomp
+compile
+missing
+install-sh
+ltmain.sh
+m4/
+libtool
+config.h
+config.log
+config.status
+config.guess*
+config.sub*
+configure
+aclocal.m4
+Makefile
+Makefile.in*
+INSTALL
+autom4te.cache
+.pc/
+.deps/
+
+# common temp files
+*.o
+stamp-h1
+
+# debian files
+debian/stamp-*
+debian/autoreconf.*
+debian/files
+debian/*.substvars
+debian/*.debhelper*
+debian/tmp
+debian/gstreamer0.10-plugins-fsl-dbg/
+debian/gstreamer0.10-plugins-fsl-doc/
+debian/gstreamer0.10-plugins-fsl-tools-dbg/
+debian/gstreamer0.10-plugins-fsl-tools/
+debian/gstreamer0.10-plugins-fsl/
+debian/libgstreamer-plugins-fsl0.10-0/
+debian/libgstreamer-plugins-fsl0.10-dbg/
+debian/libgstreamer-plugins-fsl0.10-dev/
+
+# generated and binary files
+*.so*
+*.la
+*.lo
+.libs
+gstreamer-fsl-0.10.pc
+gstreamer-fsl.pc
+src/audio/beep/src/beep_registry.arm11.cf
+src/audio/beep/src/beep_registry.arm12.cf
+src/audio/beep/src/beep_registry.arm9.cf
+src/parser/aiur/src/aiur_registry.arm11.cf
+src/parser/aiur/src/aiur_registry.arm9.cf
+tools/gplay/gplay
