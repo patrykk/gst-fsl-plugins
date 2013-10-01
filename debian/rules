@@ -1,0 +1,16 @@
+#!/usr/bin/make -f
+
+include /usr/share/cdbs/1/rules/autoreconf.mk
+include /usr/share/cdbs/1/rules/debhelper.mk
+include /usr/share/cdbs/1/class/gnome.mk
+include /usr/share/cdbs/1/rules/utils.mk
+
+DEB_DH_AUTORECONF_ARGS := $(CURDIR)/autogen.sh PLATFORM=MX6 --
+DEB_CONFIGURE_EXTRA_FLAGS := PLATFORM=MX6
+DEB_DH_SHLIBDEPS_ARGS := -u --ignore-missing-info --
+export CFLAGS=-O2 -march=armv7-a -mcpu=cortex-a9 -mfpu=neon -mthumb -mfloat-abi=softfp -ftree-vectorize
+cleanbuilddir/gstreamer0.10-plugins-fsl::
+	chmod u+w -R $(CURDIR)
+	rm -rf $(CURDIR)/autom4te.cache
+	rm -rf $(CURDIR)/missing
+	#./autoregen.sh

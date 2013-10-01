@@ -1,0 +1,87 @@
+Source: gst-fsl-plugins
+Section: libs
+Priority: extra
+Maintainer: Sario Hu <b01138@freescale.com>
+Uploaders: Feng Wei <b34248@freescale.com>
+Build-Depends: debhelper (>= 7), cdbs, autotools-dev, dh-autoreconf,
+               autoconf, automake, libtool, gstreamer-tools,
+               libfslaudiocodec-dev | libfslaudiocodec-dev-armel-cross,
+               libfslvideocodec-dev | libfslvideocodec-dev-armel-cross,
+               libfslparser-dev | libfslparser-dev-armel-cross,
+               libfslvpuwrap-dev | libfslvpuwrap-dev-armel-cross,
+               libgstreamer0.10-dev,
+               libgstreamer-plugins-base0.10-dev
+Standards-Version: 3.9.1
+Homepage: http://www.freescale.com
+
+Package: gstreamer0.10-plugins-fsl
+Section: video
+Architecture: armel
+Depends: ${misc:Depends}, libfslaudiocodec1,
+  libfslvideocodec1, libfslparser3, libfslvpuwrap3, libfslaacpaudiocodec1,
+  libgstreamer-plugins-fsl0.10-0 (= ${binary:Version})
+Description: Freescale Multimedia Gstreamer Plugin for GStreamer.
+ This GStreamer plugin supports a large number of audio/video compression
+ formats. The codecs are accelerated by Freescale IMX SoC.
+
+Package: gstreamer0.10-plugins-fsl-dbg
+Architecture: any
+Priority: extra
+Section: debug
+Depends: ${misc:Depends}, gstreamer0.10-plugins-fsl (= ${binary:Version})
+Description: Freescale Multimedia Gstreamer Plugin for GStreamer.
+ This GStreamer plugin supports a large number of audio/video compression
+ formats. The codecs are accelerated by Freescale IMX SoC.
+ .
+ This package contains the debug symbols.
+
+Package: libgstreamer-plugins-fsl0.10-0
+Section: libs
+Architecture: armel
+Description: Freescale Multimedia Gstreamer Plugin libraries.
+ This is the library for development Freescale Multimedia Gstreamer Plugin.
+
+Package: libgstreamer-plugins-fsl0.10-dbg
+Architecture: any
+Priority: extra
+Section: debug
+Depends: ${misc:Depends}, libgstreamer-plugins-fsl0.10-0 (= ${binary:Version})
+Description: Freescale Multimedia Gstreamer Plugin libraries. (Debug symbols)
+ This is the library for development Freescale Multimedia Gstreamer Plugin.
+ .
+ This package contains the debug symbols.
+
+Package: libgstreamer-plugins-fsl0.10-dev
+Section: libdevel
+Architecture: armel
+Depends: ${misc:Depends}, libgstreamer-plugins-fsl0.10-0 (= ${binary:Version})
+Description: Freescale Multimedia Gstreamer Plugin libraries.
+ This is the library for development Freescale Multimedia Gstreamer Plugin.
+ .
+ This package contains the development headers.
+
+Package: gstreamer0.10-plugins-fsl-tools
+Section: utils
+Architecture: armel
+Depends: ${misc:Depends}, libgstreamer0.10-0, libgstreamer-plugins-fsl0.10-0, libgstreamer-plugins-base0.10-0
+Description: Freescale Multimedia Gstreamer Utils.
+ This is the library for development Freescale Multimedia Gstreamer Plugin.
+ .
+ This package contains the development utils.
+
+Package: gstreamer0.10-plugins-fsl-tools-dbg
+Architecture: any
+Priority: extra
+Section: debug
+Depends: ${misc:Depends}, gstreamer0.10-plugins-fsl-tools (= ${binary:Version})
+Description: Freescale Multimedia Gstreamer Utils.
+ This is the library for development Freescale Multimedia Gstreamer Plugin.
+ .
+ This package contains the development utils debug symbols.
+
+Package: gstreamer0.10-plugins-fsl-doc
+Section: doc
+Architecture: all
+Depends: ${misc:Depends}
+Description: Freescale Multimedia Gstreamer Documents.
+ This is the documents for development and use Freescale Multimedia Gstreamer Plugin.
