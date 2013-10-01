@@ -1,2 +1,4 @@
 usr/lib/*.so.*
-usr/share
+usr/share/*.cf
+usr/share/vssconfig
+

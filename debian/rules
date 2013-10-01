@@ -13,4 +13,10 @@ cleanbuilddir/gstreamer0.10-plugins-fsl::
 	chmod u+w -R $(CURDIR)
 	rm -rf $(CURDIR)/autom4te.cache
 	rm -rf $(CURDIR)/missing
+	rm -rf $(CURDIR)/m4
+	rm -rf $(CURDIR)/.pc
 	#./autoregen.sh
+
+override_dh_installdocs:
+override_dh_installchangelogs:
+	# do nothing
