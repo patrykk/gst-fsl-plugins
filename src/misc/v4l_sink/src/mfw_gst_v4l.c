@@ -1421,11 +1421,11 @@ mfw_gst_v4l2_display_init (MFW_GST_V4LSINK_INFO_T * v4l_info,
   width = (disp_width >> 3) << 3;
   height = (disp_height >> 3) << 3;
   if (width == 0) {
-    GST_WARNING ("Wrong display width information");
+    GST_WARNING ("Wrong display width information %d(%d) x %d(%d)", width, disp_width, height, disp_height);
     width = v4l_info->fullscreen_width;
   }
   if (height == 0) {
-    GST_WARNING ("Wrong display height information");
+    GST_WARNING ("Wrong display height information %d(%d) x %d(%d)", width, disp_width, height, disp_height);
     height = v4l_info->fullscreen_height;
   }
 

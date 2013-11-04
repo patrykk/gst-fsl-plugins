@@ -539,6 +539,7 @@ mfw_gst_x11_get_geometry (GstXInfo * gstXInfo)
 
 
     g_mutex_lock (gstXInfo->x_lock);
+    XLockDisplay(gstXInfo->xcontext->disp);
 
     XGetWindowAttributes (gstXInfo->xcontext->disp, gstXInfo->xwindow->win,
                           &attr);
@@ -546,6 +547,7 @@ mfw_gst_x11_get_geometry (GstXInfo * gstXInfo)
     XTranslateCoordinates (gstXInfo->xcontext->disp, gstXInfo->xwindow->win,
                            attr.root, 0, 0, &x, &y, &w);
 
+    XUnlockDisplay(gstXInfo->xcontext->disp);
     g_mutex_unlock (gstXInfo->x_lock);
 
     if ((x != gstXInfo->xwindow->x) || (y != gstXInfo->xwindow->y)
@@ -661,6 +663,8 @@ mfw_gst_x11_xcontext_get ()
     gint nb_formats = 0, i;
 
     xcontext = g_new0 (GstXContext, 1);
+
+    XInitThreads();
 
     xcontext->disp = XOpenDisplay (NULL);
     if (!xcontext->disp) {

@@ -333,7 +333,6 @@ IMPORTANT NOTES:    None
 static void
 mfw_gst_v4lsink_create_event_thread (MFW_GST_V4LSINK_INFO_T * v4l_info)
 {
-
   if (v4l_info->x11enabled) {
     gint timeout = 20;          //timeout 2s
     while ((v4l_info->disp_height < 16) && (timeout-- > 0)) {
@@ -342,12 +341,20 @@ mfw_gst_v4lsink_create_event_thread (MFW_GST_V4LSINK_INFO_T * v4l_info)
 
     }
 
+    g_mutex_lock (v4l_info->flow_lock);
     if ((v4l_info->gstXInfo)
         && (v4l_info->gstXInfo->running == FALSE)) {
+
       v4l_info->gstXInfo->running = TRUE;
+      g_mutex_unlock (v4l_info->flow_lock);
+
       v4l_info->gstXInfo->event_thread =
           g_thread_create ((GThreadFunc) mfw_gst_xv4l2_event_thread, v4l_info,
           TRUE, NULL);
+    }
+    else
+    {
+      g_mutex_unlock (v4l_info->flow_lock);
     }
 
     if (!(IS_PXP (v4l_info->chipcode)))
@@ -794,43 +801,61 @@ mfw_gst_v4lsink_set_property (GObject * object, guint prop_id,
   switch (prop_id) {
 
     case DISP_WIDTH:
+      g_mutex_lock (v4l_info->flow_lock);
       v4l_info->disp_width = g_value_get_int (value);
+      g_mutex_unlock (v4l_info->flow_lock);
       GST_DEBUG ("width = %d", v4l_info->disp_width);
       break;
     case DISP_HEIGHT:
+      g_mutex_lock (v4l_info->flow_lock);
       v4l_info->disp_height = g_value_get_int (value);
+      g_mutex_unlock (v4l_info->flow_lock);
       GST_DEBUG ("height = %d", v4l_info->disp_height);
       break;
     case AXIS_TOP:
+      g_mutex_lock (v4l_info->flow_lock);
       v4l_info->axis_top = g_value_get_int (value);
+      g_mutex_unlock (v4l_info->flow_lock);
       GST_DEBUG ("axis_top = %d", v4l_info->axis_top);
       break;
     case AXIS_LEFT:
+      g_mutex_lock (v4l_info->flow_lock);
       v4l_info->axis_left = g_value_get_int (value);
+      g_mutex_unlock (v4l_info->flow_lock);
       GST_DEBUG ("axis_left = %d", v4l_info->axis_left);
       break;
     case ROTATE:
+      g_mutex_lock (v4l_info->flow_lock);
       v4l_info->rotate = g_value_get_int (value);
+      g_mutex_unlock (v4l_info->flow_lock);
       g_print ("rotate = %d", v4l_info->rotate);
 
       break;
     case CROP_LEFT:
+      g_mutex_lock (v4l_info->flow_lock);
       v4l_info->crop_left = g_value_get_int (value);
+      g_mutex_unlock (v4l_info->flow_lock);
       GST_DEBUG ("crop_left = %d", v4l_info->crop_left);
       break;
 
     case CROP_RIGHT:
+      g_mutex_lock (v4l_info->flow_lock);
       v4l_info->crop_right = g_value_get_int (value);
+      g_mutex_unlock (v4l_info->flow_lock);
       GST_DEBUG ("crop_right = %d", v4l_info->crop_right);
       break;
 
     case CROP_TOP:
+      g_mutex_lock (v4l_info->flow_lock);
       v4l_info->crop_top = g_value_get_int (value);
+      g_mutex_unlock (v4l_info->flow_lock);
       GST_DEBUG ("crop_top = %d", v4l_info->crop_top);
       break;
 
     case CROP_BOTTOM:
+      g_mutex_lock (v4l_info->flow_lock);
       v4l_info->crop_bottom = g_value_get_int (value);
+      g_mutex_unlock (v4l_info->flow_lock);
       GST_DEBUG ("crop_bottom = %d", v4l_info->crop_bottom);
       break;
 
@@ -1487,6 +1512,9 @@ static GstStateChangeReturn
 mfw_gst_v4lsink_change_state (GstElement * element, GstStateChange transition)
 {
   MFW_GST_V4LSINK_INFO_T *v4l_info = MFW_GST_V4LSINK (element);
+  guint width = 0;
+  guint disp_width = 0;
+  guint disp_height = 0;
 
   GstStateChangeReturn ret = GST_STATE_CHANGE_SUCCESS;
   guint8 index;
@@ -1536,11 +1564,15 @@ mfw_gst_v4lsink_change_state (GstElement * element, GstStateChange transition)
       break;
     case GST_STATE_CHANGE_PAUSED_TO_PLAYING:
 
-
-
 #ifdef USE_X11
       if (v4l_info->x11enabled) {
-        if (v4l_info->width != -1)
+        g_mutex_lock (v4l_info->flow_lock);
+        width = v4l_info->width;
+        disp_width = v4l_info->disp_width;
+        g_mutex_unlock (v4l_info->flow_lock);
+
+        GST_WARNING("Try to Create event thread: width=%d, disp_width=%d", width, disp_width);
+        if (width != -1 || disp_width > 1)
           mfw_gst_v4lsink_create_event_thread (v4l_info);
 
         mfw_gst_xv4l2_refresh_geometry (v4l_info);
@@ -1550,8 +1582,11 @@ mfw_gst_v4lsink_change_state (GstElement * element, GstStateChange transition)
       mfw_gst_set_gbl_alpha (v4l_info->fd_fb, 0);
 #endif
 
-      mfw_gst_v4l2_display_init (v4l_info, v4l_info->disp_width,
-          v4l_info->disp_height);
+      g_mutex_lock (v4l_info->flow_lock);
+      disp_width = v4l_info->disp_width;
+      disp_height = v4l_info->disp_height;
+      g_mutex_unlock (v4l_info->flow_lock);
+      mfw_gst_v4l2_display_init (v4l_info, disp_width, disp_height);
 
       break;
 
@@ -2128,8 +2163,14 @@ mfw_gst_v4lsink_buffer_alloc (GstBaseSink * bsink, guint64 offset,
       GST_INFO ("element state already switch to PLAYING, create event thread");
       mfw_gst_v4lsink_create_event_thread (v4l_info);
 
-      mfw_gst_v4l2_display_init (v4l_info, v4l_info->disp_width,
-          v4l_info->disp_height);
+      guint disp_width = 0;
+      guint disp_height = 0;
+      g_mutex_lock (v4l_info->flow_lock);
+      disp_width = v4l_info->disp_width;
+      disp_height = v4l_info->disp_height;
+      g_mutex_unlock (v4l_info->flow_lock);
+
+      mfw_gst_v4l2_display_init (v4l_info, disp_width, disp_height);
 
     }
 #endif
