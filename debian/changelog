@@ -1,3 +1,10 @@
+gst-fsl-plugins (3.0.7-2atrust2) t66; urgency=low
+
+  * v4lsink: Fix thread race condition issue
+  * v4lsink: Fix X11 event thread creation issue
+
+ -- Atrust Corp (Atrust Development Team) <atrust@atrustcorp.com>  Mon, 04 Nov 2013 08:31:28 +0000
+
 gst-fsl-plugins (3.0.7-2atrust1) t66; urgency=low
 
   * Update to 3.0.7-2 for L3.0.35_4.1.0 MX6 release
