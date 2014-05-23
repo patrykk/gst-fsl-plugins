@@ -1238,6 +1238,7 @@ PRE-CONDITIONS:     None
 POST-CONDITIONS:    None
 IMPORTANT NOTES:    None
 =============================================================================*/
+#define V4L2_SET_CROP_WORKAROUND 1
 
 gboolean
 mfw_gst_v4l2_set_crop (MFW_GST_V4LSINK_INFO_T * v4l_info,
@@ -1249,6 +1250,9 @@ mfw_gst_v4l2_set_crop (MFW_GST_V4LSINK_INFO_T * v4l_info,
   struct v4l2_crop newcrop;
   struct v4l2_format fmt;
   gboolean retval = TRUE;
+#if (V4L2_SET_CROP_WORKAROUND)
+  gboolean workaround = FALSE;
+#endif
   struct v4l2_buffer buf;
   gint i;
 
@@ -1342,6 +1346,13 @@ mfw_gst_v4l2_set_crop (MFW_GST_V4LSINK_INFO_T * v4l_info,
   GST_INFO ("[V4L Current Display]: left=%d, top=%d, width=%d, height=%d",
       crop->c.left, crop->c.top, crop->c.width, crop->c.height);
 
+#if (V4L2_SET_CROP_WORKAROUND)
+  if ((prevCrop->c.left == crop->c.left && prevCrop->c.top == crop->c.top) && 
+      (prevCrop->c.width == crop->c.width || prevCrop->c.height == crop->c.height)) {
+      workaround = TRUE;
+  }
+#endif
+
   if ((!memcmp (crop, prevCrop, sizeof (struct v4l2_crop)))
       && (v4l_info->rotate == v4l_info->prevRotate)) {
     // mfw_gst_v4l2_streamoff(v4l_info);
@@ -1359,6 +1370,19 @@ mfw_gst_v4l2_set_crop (MFW_GST_V4LSINK_INFO_T * v4l_info,
 
   }
 
+#if (V4L2_SET_CROP_WORKAROUND)
+  if (workaround) {
+    crop->c.width = 80;
+    crop->c.height = 60;
+    if (ioctl (v4l_info->v4l_id, VIDIOC_S_CROP, crop) < 0) {
+        GST_ERROR ("set crop failed");
+        retval = FALSE;
+        goto err0;
+    }
+    crop->c.width = prevCrop->c.width;
+    crop->c.height = prevCrop->c.height;
+  }
+#endif
 
   if (ioctl (v4l_info->v4l_id, VIDIOC_S_CROP, crop) < 0) {
     GST_ERROR ("set crop failed");
