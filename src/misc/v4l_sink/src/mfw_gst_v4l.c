@@ -1396,6 +1396,14 @@ mfw_gst_v4l2_set_crop (MFW_GST_V4LSINK_INFO_T * v4l_info,
       GST_WARNING("Get crop failed");
       goto err0;
   }
+
+  if (newcrop.c.left != crop->c.left || newcrop.c.top != crop->c.top ||
+      newcrop.c.width != crop->c.width || newcrop.c.height != crop->c.height) {
+      g_print(PURPLE_STR 
+          ("fail to set size, the actual crop settings: %d, %d, %d, %d", 
+          newcrop.c.left, newcrop.c.top, newcrop.c.width, newcrop.c.height));
+  }
+
   GST_INFO("Actual crop settings: %d, %d, %d, %d", newcrop.c.left, newcrop.c.top,
           newcrop.c.width, newcrop.c.height);
 err0:
