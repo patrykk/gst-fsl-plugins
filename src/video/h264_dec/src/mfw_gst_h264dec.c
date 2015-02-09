@@ -52,7 +52,7 @@
 /*=============================================================================
 					LOCAL CONSTANTS
 =============================================================================*/
-#define NAL_HEADER_SIZE 4
+//#define NAL_HEADER_SIZE 4
 #define MAX_FRAME_SIZE 4096
 #define MIN_FRAME_SIZE 16
 
@@ -175,8 +175,19 @@ static void mfw_gst_calculate_nal_units(MFW_GST_H264DEC_INFO_T *
 	    h264dec_struct->number_of_nal_units += 1;
 	    h264dec_struct->nal_size[h264dec_struct->number_of_nal_units] =
 		0;
-	    i += NAL_HEADER_SIZE;
-	} else {
+	    h264dec_struct->nal_startsize[h264dec_struct->number_of_nal_units]=4;
+	    i += 4;
+	}
+	else if (temp[i] == 0x00 && temp[i + 1] == 0x00 &&
+	    temp[i + 2] == 0x01) {
+	    GST_DEBUG("\nFound a 00 00 01 NAL Unit in the given buffer\n");
+	    h264dec_struct->number_of_nal_units += 1;
+	    h264dec_struct->nal_size[h264dec_struct->number_of_nal_units] =
+		0;
+	    h264dec_struct->nal_startsize[h264dec_struct->number_of_nal_units]=3;
+	    i += 3;
+	} 
+	else {
 	    i++;
 	    h264dec_struct->nal_size[h264dec_struct->
 				     number_of_nal_units] += 1;
@@ -777,6 +788,7 @@ mfw_gst_h264dec_dframe(MFW_GST_H264DEC_INFO_T * h264dec_struct,
     guint8 *temp = NULL;
     unsigned int addr = 0;
     gboolean first_display = TRUE;
+    gint32 nal_hdr_size=4;
 
 {
     if (h264dec_struct->demo_mode == 2)
@@ -814,8 +826,9 @@ mfw_gst_h264dec_dframe(MFW_GST_H264DEC_INFO_T * h264dec_struct,
 	GST_DEBUG(" Total  bytes in NAL unit  =%d, for loop %d\n",
 		  h264dec_struct->dec_config.s32NumBytes, i_loop + 1);
 
+	nal_hdr_size=h264dec_struct->nal_startsize[i_loop + 1];
 	/* skip the NAL header from the input data  */
-	temp = temp + NAL_HEADER_SIZE;
+	temp = temp + nal_hdr_size;
 
 	/* callback is not required to provide input data in decode library call  ,
 	   just pass a complete NAL unit of data at the time of decode library call */
@@ -894,7 +907,14 @@ mfw_gst_h264dec_dframe(MFW_GST_H264DEC_INFO_T * h264dec_struct,
 	    h264dec_struct->status =
 		eAVCDReQueryMem(&h264dec_struct->dec_config);
 
-
+	//fix rtsp case : no valid with/height are set through _set_caps()
+	if((0==h264dec_struct->frame_width)||(0==h264dec_struct->frame_height)){
+	    GST_DEBUG("reset frame width/height \n");
+	    h264dec_struct->frame_width=h264dec_struct->dec_config.sConfig.s16FrameWidth;
+	    h264dec_struct->frame_height=h264dec_struct->dec_config.sConfig.s16FrameHeight;
+	    h264dec_struct->frame_width_padded = (h264dec_struct->frame_width+15)/16*16+32;
+	    h264dec_struct->frame_height_padded = (h264dec_struct->frame_height+15)/16*16+32;
+	}
 
         /* Init buffer manager for correct working mode.*/
         BM_INIT((h264dec_struct->bmmode) ? BMINDIRECT : BMDIRECT, h264dec_struct->dec_config.sMemInfo.s32MinFrameBufferNum, RENDER_BUFFER_MAX_NUM);
@@ -1030,7 +1050,7 @@ mfw_gst_h264dec_dframe(MFW_GST_H264DEC_INFO_T * h264dec_struct,
 	       so change the pointer to old location */
 	    temp =
 		temp - h264dec_struct->dec_config.s32NumBytes -
-		NAL_HEADER_SIZE;
+		nal_hdr_size;
 
 	    i_loop--;
 
@@ -1092,7 +1112,7 @@ mfw_gst_h264dec_dframe(MFW_GST_H264DEC_INFO_T * h264dec_struct,
 	       so change the pointer to old location */
 	    temp =
 		temp - h264dec_struct->dec_config.s32NumBytes -
-		NAL_HEADER_SIZE;
+		nal_hdr_size;
 	    i_loop--;
     }
     }
@@ -1268,6 +1288,7 @@ static GstFlowReturn mfw_gst_h264dec_chain(GstPad * pad,
 
     h264dec_struct->number_of_nal_units = 0;
     memset(h264dec_struct->nal_size, 0, sizeof(h264dec_struct->nal_size));
+    memset(h264dec_struct->nal_startsize, 0, sizeof(h264dec_struct->nal_startsize));
     gst_buffer_unref(buffer);
     buffer = NULL;
     h264dec_struct->input_buffer = NULL;

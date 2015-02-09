@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2011 Freescale Semiconductor, Inc. All rights reserved.
+ * Copyright (C) 2005-2013 Freescale Semiconductor, Inc. All rights reserved.
  *
  */
 
@@ -193,9 +193,11 @@ typedef struct MFW_GST_AACDEC_INFO_S
 
   gboolean profile_not_support; /* if the aac profile is not LC, set this to TRUE */
   BitstreamParam App_bs_param;
+  gint not_support_cnt;
 
   gchar bitstream_buf[MAX_ENC_BUF_SIZE];
   guchar App_ibs_buf[INTERNAL_BS_BUFSIZE];
+  
 } MFW_GST_AACDEC_INFO_T;
 
 

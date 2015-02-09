@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009-2012, Freescale Semiconductor, Inc. 
+ * Copyright (c) 2009-2014, Freescale Semiconductor, Inc. 
  *
  */
 
@@ -98,6 +98,10 @@ mfw_gst_v4lsink_buffer_finalize (MFWGstV4LSinkBuffer * v4lsink_buffer_released)
         GST_DEBUG (RED_STR ("%s: free software buffer", __FUNCTION__));
         g_free (GST_BUFFER_DATA (v4lsink_buffer_released));
         GST_BUFFER_DATA (v4lsink_buffer_released) = NULL;
+        if (v4l_info) {
+          gst_object_unref (GST_OBJECT (v4l_info));
+          v4lsink_buffer_released->v4lsinkcontext = NULL;
+        }
       }
       g_mutex_unlock (v4l_info->pool_lock);
       break;
@@ -497,6 +501,11 @@ mfw_gst_v4l2_new_hwbuffer (MFW_GST_V4LSINK_INFO_T * v4l_info)
       mmap (NULL, v4lbuf->length,
       PROT_READ | PROT_WRITE, MAP_SHARED, v4l_info->v4l_id, v4lbuf->m.offset);
 
+  if (GST_BUFFER_DATA (v4lsink_buffer) == MAP_FAILED) {
+    GST_ERROR ("mmap v4l2 buffer failed.");
+    return NULL;
+  }
+
   /* Walkaround for V4L, it need QUERYBUF twice to get the hardware address */
   if (v4l_info->chipcode == CC_MX6Q)
     if (ioctl (v4l_info->v4l_id, VIDIOC_QUERYBUF, v4lbuf) < 0) {
@@ -591,6 +600,8 @@ mfw_gst_v4l2_clear_showingbuf (MFW_GST_V4LSINK_INFO_T * v4l_info)
 
           g_mutex_lock (v4l_info->pool_lock);
           v4l_info->v4lqueued--;
+          v4l_info->v4llist =
+              g_list_remove (v4l_info->v4llist, (gpointer) (v4lsinkbuffer->v4l_buf.index));
         }
       }
     }
@@ -725,6 +736,11 @@ mfw_gst_v4l2_buffer_init (MFW_GST_V4LSINK_INFO_T * v4l_info)
 
     g_mutex_unlock (v4l_info->pool_lock);
 
+    if (!tmpbuffer) {
+      GST_ERROR ("mfw_gst_v4l2_new_hwbuffer failed.");
+      return GST_FLOW_ERROR;
+    }
+
   }
   return GST_FLOW_OK;
 
@@ -756,6 +772,12 @@ mfw_gst_v4l2_free_buffers (MFW_GST_V4LSINK_INFO_T * v4l_info)
   if (v4l_info->all_buffer_pool) {
     /* try to unref all buffer in pool */
     for (i = 0; i < totalbuffernum; i++) {
+
+      // if can't allocate totalbuffernum buffers from device, all_buffer_pool will be freed
+      // when unref v4lsink_buffer, need to re-check it to avoid crash.
+      if (!v4l_info->all_buffer_pool)
+        break;
+
       v4lsink_buffer = (MFWGstV4LSinkBuffer *) (v4l_info->all_buffer_pool[i]);
 
       /* for buffers in IDLE and SHOWING state, no unref outside, explicit unref it */

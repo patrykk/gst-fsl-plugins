@@ -173,6 +173,8 @@ PKG_CONFIG_LIBDIR = @PKG_CONFIG_LIBDIR@
 PKG_CONFIG_PATH = @PKG_CONFIG_PATH@
 PLATFORM = @PLATFORM@
 RANLIB = @RANLIB@
+RT_CFLAGS = @RT_CFLAGS@
+RT_LIBS = @RT_LIBS@
 SED = @SED@
 SET_MAKE = @SET_MAKE@
 SHELL = @SHELL@
@@ -212,6 +214,7 @@ build_vendor = @build_vendor@
 builddir = @builddir@
 datadir = @datadir@
 datarootdir = @datarootdir@
+ddpd_arm12_SONAME = @ddpd_arm12_SONAME@
 docdir = @docdir@
 dvidir = @dvidir@
 exec_prefix = @exec_prefix@
@@ -272,7 +275,7 @@ libmfw_vpu_la_SOURCES = vpu.c vpudec.c vpuenc.c
 
 # flags used to compile this plugin
 # we use the GST_LIBS flags because we might be using plug-in libs
-libmfw_vpu_la_CFLAGS = $(GST_BASE_CFLAGS) -O2 -fno-omit-frame-pointer $(FSL_MM_CORE_CFLAGS) -I../../../../inc/plugin  -I../../../../libs/me -I../../../../libs/gstbufmeta -I../../../../libs/gstsutils -I../../../../libs/gstnext
+libmfw_vpu_la_CFLAGS = $(GST_BASE_CFLAGS) -O2 -fno-omit-frame-pointer $(FSL_MM_CORE_CFLAGS) -I../../../../inc/plugin  -I../../../../libs/me -I../../../../libs/gstbufmeta -I../../../../libs/gstsutils -I../../../../libs/gstnext -I../../../../inc/core_lib
 libmfw_vpu_la_LIBADD = $(GST_BASE_LIBS) $(GST_PLUGINS_BASE_LIBS) \
 	$(GST_LIBS) -lgstriff-@GST_MAJORMINOR@ \
 	-lgsttag-@GST_MAJORMINOR@ \

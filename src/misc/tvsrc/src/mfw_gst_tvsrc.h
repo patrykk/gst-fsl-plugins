@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005-2012, Freescale Semiconductor, Inc. All rights reserved.
+ * Copyright (c) 2011-2013, Freescale Semiconductor, Inc. All rights reserved.
  *
  */
 
@@ -21,9 +21,9 @@
  */
 
 /*
- * Module Name:    mfw_gst_v4lsrc.h
+ * Module Name:    mfw_gst_tvsrc.h
  *
- * Description:    Header file of V4L Source (Capture) Plug-in for 
+ * Description:    Header file of TV Source (Capture) Plug-in for 
  *                 GStreamer.
  *
  * Portability:    This code is written for Linux OS and Gstreamer
@@ -39,10 +39,8 @@
                                 INCLUDE FILES
 =============================================================================*/
 
-#ifndef _MFW_GST_V4LSRC_H_
-#define _MFW_GST_V4LSRC_H_
-
-#include "mfw_gst_utils.h"
+#ifndef _MFW_GST_TVSRC_H_
+#define _MFW_GST_TVSRC_H_
 
 /*=============================================================================
                                 CONSTANTS
@@ -59,26 +57,26 @@
 =============================================================================*/
 G_BEGIN_DECLS
 /* #defines don't like whitespacey bits */
-#define MFW_GST_TYPE_V4LSRC (mfw_gst_v4lsrc_get_type())
-#define MFW_GST_V4LSRC(obj) \
-    (G_TYPE_CHECK_INSTANCE_CAST((obj),MFW_GST_TYPE_V4LSRC,MFWGstV4LSrc))
-#define MFW_GST_V4LSRC_CLASS(klass) \
-  (G_TYPE_CHECK_CLASS_CAST((klass),MFW_GST_TYPE_V4LSRC,MFWGstV4LSrcClass))
-#define MFW_GST_IS_V4LSRC(obj) \
-  (G_TYPE_CHECK_INSTANCE_TYPE((obj),MFW_GST_TYPE_V4LSRC))
-#define MFW_GST_IS_V4LSRC_CLASS(klass) \
-  (G_TYPE_CHECK_CLASS_TYPE((klass),MFW_GST_TYPE_V4LSRC))
-#define MFW_GST_TYPE_V4LSRC_BUFFER (mfw_gst_v4lsrc_buffer_get_type())
-#define MFW_GST_IS_V4LSRC_BUFFER(obj) \
-    (G_TYPE_CHECK_INSTANCE_TYPE ((obj), MFW_GST_TYPE_V4LSRC_BUFFER))
-#define MFW_GST_V4LSRC_BUFFER(obj) \
-    (G_TYPE_CHECK_INSTANCE_CAST ((obj), MFW_GST_TYPE_V4LSRC_BUFFER, MFWGstV4LSrcBuffer))
-#define MFW_GST_V4LSRC_BUFFER_GET_CLASS(obj)  \
-    (G_TYPE_INSTANCE_GET_CLASS ((obj), MFW_GST_TYPE_V4LSRC_BUFFER, MFWGstV4LSrcBufferClass))
+#define MFW_GST_TYPE_TVSRC (mfw_gst_tvsrc_get_type())
+#define MFW_GST_TVSRC(obj) \
+    (G_TYPE_CHECK_INSTANCE_CAST((obj),MFW_GST_TYPE_TVSRC,MFWGstTVSRC))
+#define MFW_GST_TVSRC_CLASS(klass) \
+  (G_TYPE_CHECK_CLASS_CAST((klass),MFW_GST_TYPE_TVSRC,MFWGstTVSRCClass))
+#define MFW_GST_IS_TVSRC(obj) \
+  (G_TYPE_CHECK_INSTANCE_TYPE((obj),MFW_GST_TYPE_TVSRC))
+#define MFW_GST_IS_TVSRC_CLASS(klass) \
+  (G_TYPE_CHECK_CLASS_TYPE((klass),MFW_GST_TYPE_TVSRC))
+#define MFW_GST_TYPE_TVSRC_BUFFER (mfw_gst_tvsrc_buffer_get_type())
+#define MFW_GST_IS_TVSRC_BUFFER(obj) \
+    (G_TYPE_CHECK_INSTANCE_TYPE ((obj), MFW_GST_TYPE_TVSRC_BUFFER))
+#define MFW_GST_TVSRC_BUFFER(obj) \
+    (G_TYPE_CHECK_INSTANCE_CAST ((obj), MFW_GST_TYPE_TVSRC_BUFFER, MFWGstTVSRCBuffer))
+#define MFW_GST_TVSRC_BUFFER_GET_CLASS(obj)  \
+    (G_TYPE_INSTANCE_GET_CLASS ((obj), MFW_GST_TYPE_TVSRC_BUFFER, MFWGstTVSRCBufferClass))
 /*=============================================================================
                   STRUCTURES AND OTHER TYPEDEFS
 =============================================================================*/
-    typedef struct MFW_GST_V4LSRC_INFO_S
+    typedef struct MFW_GST_TVSRC_INFO_S
 {
 
   GstPushSrc element;
@@ -100,12 +98,12 @@ G_BEGIN_DECLS
   gint preview_top;
   gint preview_left;
   gint fd_v4l;
+  gint fd_v4l_out;
   gint sensor_width;
   gint sensor_height;
   GstClockTime time_per_frame;
   GstClockTime last_ts;
   gint capture_mode;
-  gint input;
   gboolean bg;
   char *devicename;
   int g_display_lcd;
@@ -114,13 +112,14 @@ G_BEGIN_DECLS
   GMutex *pool_lock;            /* lock for buffer pool operation */
   gboolean start;
   gboolean stop;
-  CHIP_CODE chipcode;
-} MFWGstV4LSrc;
+  gboolean tv_in;
+  v4l2_std_id id;
+} MFWGstTVSRC;
 
-typedef struct MFW_GST_V4LSRC_INFO_CLASS_S
+typedef struct MFW_GST_TVSRC_INFO_CLASS_S
 {
   GstPushSrcClass parent_class;
-} MFWGstV4LSrcClass;
+} MFWGstTVSRCClass;
 
 struct v4l2_mxc_offset
 {
@@ -129,14 +128,14 @@ struct v4l2_mxc_offset
 };
 
 
-typedef struct _MFWGstV4LSrcBuffer MFWGstV4LSrcBuffer;
-typedef struct _MFWGstV4LSrcBufferClass MFWGstV4LSrcBufferClass;
+typedef struct _MFWGstTVSRCBuffer MFWGstTVSRCBuffer;
+typedef struct _MFWGstTVSRCBufferClass MFWGstTVSRCBufferClass;
 
-struct _MFWGstV4LSrcBuffer
+struct _MFWGstTVSRCBuffer
 {
   GstBuffer buffer;
   struct v4l2_buffer v4l2_buf;
-  MFWGstV4LSrc *v4lsrccontext;
+  MFWGstTVSRC *TVSRCcontext;
   gint num;
 };
 
@@ -158,8 +157,8 @@ struct _MFWGstV4LSrcBuffer
                   FUNCTION PROTOTYPES
 =============================================================================*/
 
-extern GType mfw_gst_v4lsrc_get_type (void);
+extern GType mfw_gst_tvsrc_get_type (void);
 
 G_END_DECLS
 /*===========================================================================*/
-#endif /* _MFW_GST_V4LSRC_H_ */
+#endif /* _MFW_GST_TVSRC_H_ */

@@ -15,7 +15,7 @@
 */
 
 /*
- * Copyright (c) 2011-2012, Freescale Semiconductor, Inc. (contact <sario.hu@freescale.com>).
+ * Copyright (c) 2011-2013, Freescale Semiconductor, Inc. 
 
  * Based on qtdemux.c by
  * Copyright (C) <1999> Erik Walthinsen <omega@cse.ogi.edu>
@@ -49,6 +49,11 @@
 #include "aiurdemux.h"
 #include "gstsutils/gstsutils.h"
 
+#define GST_TAG_VIDEO_FRAMERATE "frame_rate"
+#define GST_TAG_VIDEO_BITRATE "video_bitrate"
+#define GST_TAG_VIDEO_WIDTH "image_width"
+#define GST_TAG_VIDEO_HEIGHT "image_height"
+
 #define AIURDEMUX_INIT_BLOCK_SIZE (4)
 
 #define AIUR_CORETS_2_GSTTS(ts) (((ts)==PARSER_UNKNOWN_TIME_STAMP)? GST_CLOCK_TIME_NONE : (ts*1000))
@@ -63,6 +68,7 @@
 #define AIURDEMUX_FRAME_N_DEFAULT 30
 #define AIURDEMUX_FRAME_D_DEFAULT 1
 
+#define MERGE_H264_CODEC_DATA
 #define AIUR_ENV "aiurenv"
 
 //#define AIUR_SUB_TEXT_SUPPORT
@@ -119,6 +125,9 @@
 #define AIUR_PROTOCOL_IS_LOCAL(uri) \
     (aiurdemux_is_protocol((uri), aiur_localprotocol_table))
 
+#define AIUR_PROTOCOL_IS_STREAMING(uri) \
+    (aiurdemux_is_protocol((uri), aiur_streamingprotocol_table))
+
 #define AIUR_STREAM_FLUSH_INTERLEAVE_QUEUE(stream) \
     do { \
       GstBuffer * gbuf; \
@@ -154,6 +163,15 @@ static AiurDemuxProtocolEntry aiur_liveprotocol_table[] = {
 
 static AiurDemuxProtocolEntry aiur_localprotocol_table[] = {
   {"file"},
+  {NULL},
+};
+static AiurDemuxProtocolEntry aiur_streamingprotocol_table[] = {
+    {"http"},
+    {"rtsp"},
+    {"mms"},
+    {"rtmp"},
+    {"udp"},
+    {"rtp"},
   {NULL},
 };
 
@@ -239,6 +257,7 @@ struct _AiurDemuxStream
   gboolean valid;
 
   gboolean send_codec_data;
+  gboolean merge_codec_data;
   gboolean block;
   gint32 preroll_size;
 
@@ -305,6 +324,7 @@ enum
   PROP_STREAM_MASK,
   PROP_PROGRAM_MASK,
   PROP_INTERLEAVE_QUEUE_SIZE,
+  PROP_STREAMING_LATENCY,
 };
 
 
@@ -363,6 +383,11 @@ static GstsutilsOptionEntry g_aiurdemux_option_table[] = {
         G_TYPE_UINT,
         G_STRUCT_OFFSET (AiurDemuxOption, interleave_queue_size),
       "10240000", "0", G_MAXUINT_STR},
+  {PROP_STREAMING_LATENCY, "streaming_latency", "latency for streaming",
+        "set the latency in ms seconds for streaming mode",
+        G_TYPE_UINT,
+        G_STRUCT_OFFSET (AiurDemuxOption, streaming_latency),
+      "400", "0", G_MAXUINT_STR},
   {-1, NULL, NULL, NULL, 0, 0, NULL}    /* terminator */
 };
 
@@ -378,7 +403,7 @@ static AiurDemuxConfigEntry aiur_config_table[] = {
   {"aiur_index_dir", TYPE_STRING, G_STRUCT_OFFSET (AiurDemuxConfig, index_file_prefix), NULL},  /* default $HOME/.aiur */
 
   {"aiur_retimestamp_delay_ms", TYPE_INT, G_STRUCT_OFFSET (AiurDemuxConfig, retimestamp_delay_ms), "500"},      /* 500ms */
-  {"aiur_retimestamp_threashold_ms", TYPE_INT, G_STRUCT_OFFSET (AiurDemuxConfig, retimestamp_threashold_ms), "2000"},   /* 2 second */
+  {"aiur_retimestamp_threashold_ms", TYPE_INT, G_STRUCT_OFFSET (AiurDemuxConfig, retimestamp_threashold_ms), "0"},   /*  disable retime stamp for streaming*/
 
   {"aiur_cache_stream_preserve_size", TYPE_INT,
         G_STRUCT_OFFSET (AiurDemuxConfig,
@@ -402,6 +427,7 @@ static AiurDemuxConfigEntry aiur_config_table[] = {
   {"aiur_drop_prerollsample", TYPE_BOOLEAN, G_STRUCT_OFFSET (AiurDemuxConfig,
             drop_sample),
       "true"},
+  {"aiur_autoDelay", TYPE_BOOLEAN, G_STRUCT_OFFSET (AiurDemuxConfig,autoDelay),"true"},
 
   {NULL}                        /* terminator */
 };
@@ -699,7 +725,22 @@ aiurdemux_callback_size_pull (FslFileHandle handle, void *context)
   return content->length;
 }
 
-
+uint32
+aiurdemux_callback_getflag_pull (FslFileHandle handle, void *context)
+{
+    uint32 flag = 0;
+    GstAiurDemux *demux = (GstAiurDemux *) context;
+    if(demux){
+        if(demux->clip_info.live){
+            flag |= FILE_FLAG_NON_SEEKABLE;
+            flag |= FILE_FLAG_READ_IN_SEQUENCE;
+        }
+        if(demux->clip_info.streaming)
+            flag |= FILE_FLAG_READ_IN_SEQUENCE;
+    }
+    GST_DEBUG("*** getflag_pull FLAG=%x",flag);
+    return flag;
+}
 /* push mode stream callbacks */
 FslFileHandle
 aiurdemux_callback_open_push (const uint8 * fileName, const uint8 * mode,
@@ -842,6 +883,22 @@ aiurdemux_callback_availiable_bytes_push (FslFileHandle handle,
   return bytesRequested;
 }
 
+uint32
+aiurdemux_callback_getflag_push (FslFileHandle handle, void *context)
+{
+    uint32 flag = 0;
+    GstAiurDemux *demux = (GstAiurDemux *) context;
+    if(demux){
+        if(demux->clip_info.live){
+            flag |= FILE_FLAG_NON_SEEKABLE;
+            flag |= FILE_FLAG_READ_IN_SEQUENCE;
+        }
+        if(demux->clip_info.streaming)
+            flag |= FILE_FLAG_READ_IN_SEQUENCE;
+    }
+    GST_DEBUG("*** getflag_push FLAG=%x",flag);
+    return flag;
+}
 
 /* buffer callbacks */
 uint8 *
@@ -1303,6 +1360,12 @@ aiurdemux_send_stream_newsegment (GstAiurDemux * demux,
             GST_FORMAT_TIME, (gint64) 0, stream->time_position, (gint64) 0));
   }
   stream->new_segment = FALSE;
+#ifdef MERGE_H264_CODEC_DATA
+  if(stream->type == MEDIA_VIDEO && stream->codec_type == VIDEO_H264){
+    stream->merge_codec_data = TRUE;
+    GST_DEBUG("new segment, merge codec data into buffer");
+  }
+#endif
   demux->new_segment_mask &= (~(stream->mask));
 
 }
@@ -1382,6 +1445,7 @@ aiurdemux_reset_stream (GstAiurDemux * demux, AiurDemuxStream * stream)
   stream->last_start = GST_CLOCK_TIME_NONE;
   stream->preroll_size = 0;
   stream->pending_eos = FALSE;
+  stream->block = FALSE;
 
   if (stream->buffer) {
     MM_UNREGRES (stream->buffer, RES_GSTBUFFER);
@@ -1458,6 +1522,10 @@ gst_aiurdemux_perform_seek (GstAiurDemux * demux, GstSegment * segment,
     }
   }
 
+  //do not change play mode for pure audio file.
+  if((0 == demux->n_video_streams) && (demux->n_audio_streams >= 1) && (rate >= 0)){
+    demux->play_mode = AIUR_PLAY_MODE_NORMAL;
+  }
   GST_WARNING ("Seek to %" GST_TIME_FORMAT ".", GST_TIME_ARGS (desired_offset));
 
   demux->pending_event = FALSE;
@@ -2041,8 +2109,19 @@ gst_aiurdemux_change_state (GstElement * element, GstStateChange transition)
 
   switch (transition) {
     case GST_STATE_CHANGE_READY_TO_PAUSED:
+      gst_tag_register (GST_TAG_VIDEO_FRAMERATE, GST_TAG_FLAG_META,
+          G_TYPE_UINT, "frame rate", "frame rate", NULL);
+      gst_tag_register (GST_TAG_VIDEO_BITRATE, GST_TAG_FLAG_META,
+          G_TYPE_UINT, "video bitrate", "video bitrate", NULL);
+      gst_tag_register (GST_TAG_VIDEO_WIDTH, GST_TAG_FLAG_META,
+          G_TYPE_UINT, "image width", "image width", NULL);
+      gst_tag_register (GST_TAG_VIDEO_HEIGHT, GST_TAG_FLAG_META,
+          G_TYPE_UINT, "image height", "image height", NULL);
+
       MM_INIT_DBG_MEM ("aiurdemux");
       demux->discont_check_track = -1;
+      demux->clock_offset = GST_CLOCK_TIME_NONE;
+      demux->start_time = GST_CLOCK_TIME_NONE;
       demux->tag_list = gst_tag_list_new ();
       break;
     default:
@@ -2238,7 +2317,7 @@ aiurdemux_loop_state_init (GstAiurDemux * demux)
     file_cbks->Close = aiurdemux_callback_close_pull;
 
     file_cbks->CheckAvailableBytes = aiurdemux_callback_availiable_bytes_pull;
-
+    file_cbks->GetFlag = aiurdemux_callback_getflag_pull;
   } else {
     file_cbks->Open = aiurdemux_callback_open_push;
     file_cbks->Read = aiurdemux_callback_read_push;
@@ -2248,6 +2327,7 @@ aiurdemux_loop_state_init (GstAiurDemux * demux)
     file_cbks->Close = aiurdemux_callback_close_push;
 
     file_cbks->CheckAvailableBytes = aiurdemux_callback_availiable_bytes_push;
+    file_cbks->GetFlag = aiurdemux_callback_getflag_push;
   }
 
   mem_cbks->Calloc = aiurdemux_callback_calloc;
@@ -2264,6 +2344,8 @@ aiurdemux_loop_state_init (GstAiurDemux * demux)
 
   demux->clip_info.live = ((AIUR_PROTOCOL_IS_LIVE (demux->content_info.uri))
       || (!demux->content_info.seekable));
+
+  demux->clip_info.streaming = AIUR_PROTOCOL_IS_STREAMING (demux->content_info.uri);
 
   if ((AIUR_PROTOCOL_IS_LIVE (demux->content_info.uri) || demux->clip_info.live)
       && (demux->config.retimestamp_threashold_ms)) {
@@ -2427,6 +2509,43 @@ aiurdemux_make_discont (GstAiurDemux * demux, GstClockTime ts)
 
 }
 
+static void
+aiurdemux_check_start_offset (GstAiurDemux * demux, AiurDemuxStream * stream)
+{
+    if(!demux->config.autoDelay)
+        return;
+    //clock of pipeline has started when first buffer arrives, so adjust the buffer timestamp
+    if(demux->clock_offset == GST_CLOCK_TIME_NONE){
+        GstClockTime base_time,now;
+        GstClock *clock = NULL;
+        GstClockTimeDiff offset = 0;
+        base_time = GST_ELEMENT_CAST (demux)->base_time;
+        clock = GST_ELEMENT_CLOCK (demux);
+        if(clock != NULL){
+            now = gst_clock_get_time (clock);
+            offset = now - base_time;
+            if(offset > 0)
+                demux->clock_offset = offset;
+        }
+        GST_LOG_OBJECT (demux,"basetime=%"GST_TIME_FORMAT,GST_TIME_ARGS (base_time));
+        GST_LOG_OBJECT (demux,"now=%"GST_TIME_FORMAT,GST_TIME_ARGS (now));
+        GST_LOG_OBJECT (demux,"clock_offset=%"GST_TIME_FORMAT,GST_TIME_ARGS (demux->clock_offset));
+    }
+    if(stream->last_stop == 0 && (GST_CLOCK_TIME_IS_VALID (demux->clock_offset))){
+        stream->last_stop = demux->clock_offset;
+        GST_LOG_OBJECT (demux,"last_stop =%"GST_TIME_FORMAT,GST_TIME_ARGS (stream->last_stop));
+    }
+    if(demux->start_time == GST_CLOCK_TIME_NONE){
+        demux->start_time = stream->sample_stat.start;
+        GST_LOG_OBJECT (demux,"start_time=%"GST_TIME_FORMAT,GST_TIME_ARGS (demux->start_time));
+    }
+    if((GST_CLOCK_TIME_IS_VALID (demux->clock_offset))
+        && (GST_CLOCK_TIME_IS_VALID (demux->start_time))
+        && (GST_CLOCK_TIME_IS_VALID (stream->sample_stat.start))){
+        stream->sample_stat.start = stream->sample_stat.start - demux->start_time + demux->clock_offset + (GST_MSECOND * demux->option.streaming_latency);
+        GST_LOG_OBJECT (demux,"***start=%"GST_TIME_FORMAT,GST_TIME_ARGS (stream->sample_stat.start));
+    }
+}
 static void
 aiurdemux_check_discont (GstAiurDemux * demux, AiurDemuxStream * stream)
 {
@@ -2613,6 +2732,10 @@ aiurdemux_parse_video (GstAiurDemux * demux, AiurDemuxStream * stream,
     case VIDEO_H264:
       mime = "video/x-h264, parsed = (boolean)true";
       codec = "H.264/AVC";
+#ifdef MERGE_H264_CODEC_DATA
+      stream->send_codec_data = FALSE;
+      stream->merge_codec_data = FALSE;
+#endif
       break;
     case VIDEO_MPEG2:
       //mime = "video/mp2v";
@@ -2727,7 +2850,23 @@ aiurdemux_parse_video (GstAiurDemux * demux, AiurDemuxStream * stream,
       goto fail;
       break;
   }
+  
+  gst_tag_list_add (demux->tag_list, GST_TAG_MERGE_APPEND, GST_TAG_VIDEO_CODEC, \
+      codec, NULL);
+  if ((stream->info.video.fps_n > 0) && (stream->info.video.fps_d > 0)) {
+    gst_tag_list_add (demux->tag_list, GST_TAG_MERGE_APPEND, GST_TAG_VIDEO_FRAMERATE, \
+        stream->info.video.fps_n / stream->info.video.fps_d, NULL);
+  }
 
+  if (stream->bitrate) {
+    gst_tag_list_add (demux->tag_list, GST_TAG_MERGE_APPEND, GST_TAG_VIDEO_BITRATE, \
+        stream->bitrate, NULL);
+  }
+
+  gst_tag_list_add (demux->tag_list, GST_TAG_MERGE_REPLACE, GST_TAG_VIDEO_WIDTH,
+    stream->info.video.width, NULL);
+  gst_tag_list_add (demux->tag_list, GST_TAG_MERGE_REPLACE, GST_TAG_VIDEO_HEIGHT,
+    stream->info.video.height, NULL);
   mime =
       g_strdup_printf
       ("%s, width=(int)%ld, height=(int)%ld, framerate=(fraction)%ld/%ld",
@@ -2833,6 +2972,7 @@ aiurdemux_parse_audio (GstAiurDemux * demux, AiurDemuxStream * stream,
     case AUDIO_MPEG2_AAC:
       mime = "audio/mpeg, mpegversion=(int)2, framed=(boolean)true";
       codec = "AAC";
+      stream->send_codec_data = TRUE;
       mime =
           g_strdup_printf
           ("%s, channels=(int)%ld, rate=(int)%ld, bitrate=(int)%ld", mime,
@@ -3018,7 +3158,15 @@ aiurdemux_parse_audio (GstAiurDemux * demux, AiurDemuxStream * stream,
           mime, stream->info.audio.n_channels, stream->info.audio.rate,
           stream->info.audio.sample_width, stream->bitrate);
       break;
-    default:
+    case AUDIO_EC3:
+      codec = "Dobly Digital Plus (E-AC3)";
+      mime =
+          g_strdup_printf
+          ("audio/eac3, channels=(int)%ld, rate=(int)%ld, bitrate=(int)%ld",
+          stream->info.audio.n_channels, stream->info.audio.rate,
+          stream->bitrate);
+      break;
+     default:
       goto fail;
   }
 
@@ -3217,7 +3365,7 @@ aiurdemux_parse_streams (GstAiurDemux * demux)
             gchar *codec = NULL;
             gboolean ret = gst_tag_list_get_string (demux->tag_list,
                 GST_TAG_VIDEO_CODEC, &codec);
-            if (ret)
+            if (ret && stream->pending_tags)
               gst_tag_list_add (stream->pending_tags,
                   GST_TAG_MERGE_REPLACE, GST_TAG_CODEC, codec, NULL);
             if (codec)
@@ -3236,7 +3384,7 @@ aiurdemux_parse_streams (GstAiurDemux * demux)
             gchar *codec = NULL;
             gboolean ret = gst_tag_list_get_string (demux->tag_list,
                 GST_TAG_AUDIO_CODEC, &codec);
-            if (ret)
+            if (ret && stream->pending_tags)
               gst_tag_list_add (stream->pending_tags,
                   GST_TAG_MERGE_REPLACE, GST_TAG_CODEC, codec, NULL);
             if (codec)
@@ -3260,8 +3408,10 @@ aiurdemux_parse_streams (GstAiurDemux * demux)
       gstbuf = gst_buffer_new_and_alloc (stream->codec_data.length);
       memcpy (GST_BUFFER_DATA (gstbuf),
           stream->codec_data.codec_data, stream->codec_data.length);
-      gst_caps_set_simple (stream->caps, "codec_data",
-          GST_TYPE_BUFFER, gstbuf, NULL);
+      if(stream->caps){
+          gst_caps_set_simple (stream->caps, "codec_data",
+              GST_TYPE_BUFFER, gstbuf, NULL);
+      }
       gst_buffer_unref (gstbuf);
     }
 
@@ -3288,6 +3438,8 @@ aiurdemux_parse_streams (GstAiurDemux * demux)
       aiurdemux_reset_stream (demux, stream);
       if (demux->interleave_queue_size) {
         stream->buf_queue = g_queue_new ();
+      }else{
+        stream->buf_queue = NULL;
       }
 
       demux->streams[demux->n_streams] = stream;
@@ -3324,59 +3476,53 @@ bail:
 static gboolean
 aiurdemux_set_readmode (GstAiurDemux * demux)
 {
-  AiurCoreInterface *inf = demux->core_interface;
-  FslParserHandle handle = demux->core_handle;
-  uint32 readmode = demux->clip_info.suggest_read_mode;
-  gboolean force = FALSE;
-  int32 core_ret;
+    AiurCoreInterface *inf = demux->core_interface;
+    FslParserHandle handle = demux->core_handle;
+    uint32 readmode = demux->clip_info.suggest_read_mode;
+    //gboolean force = FALSE;
+    gchar *format = NULL;
+    gboolean isMPEG = FALSE;
 
-  if ((!(CORE_API_EXIST (inf, getFileNextSample)))
-      && (!(CORE_API_EXIST (inf, getNextSample)))) {
-    g_print (RED_STR
-        ("Err: core implement neither getFileNextSample nor getNextSample\n"));
-    goto fail;
-  }
+    int32 core_ret;
 
-  if (readmode == AIUR_READMODE_NULL) {
-    readmode = PARSER_READ_MODE_FILE_BASED;
-    CORE_API (inf, getReadMode, readmode =
-        PARSER_READ_MODE_FILE_BASED, core_ret, handle, &readmode);
-    if (core_ret != PARSER_SUCCESS) {
-      readmode = PARSER_READ_MODE_FILE_BASED;
-    } else if ((readmode != PARSER_READ_MODE_FILE_BASED)
-        && (readmode != PARSER_READ_MODE_TRACK_BASED))
-      readmode = PARSER_READ_MODE_FILE_BASED;
-  }
-
-  if (!(CORE_API_EXIST (inf, getFileNextSample))) {
-    readmode = PARSER_READ_MODE_TRACK_BASED;
-    force = TRUE;
-  }
-
-  if (!(CORE_API_EXIST (inf, getNextSample))) {
-    readmode = PARSER_READ_MODE_FILE_BASED;
-    force = TRUE;
-  }
-
-  if (demux->clip_info.live) {
-    if ((readmode == PARSER_READ_MODE_TRACK_BASED) && (force))
-      goto fail;
-    readmode = PARSER_READ_MODE_FILE_BASED;
-  }
-
-  CORE_API (inf, setReadMode,, core_ret, handle, readmode);
-  if (core_ret != PARSER_SUCCESS) {
-    if (force) {
-      goto fail;
+    gboolean ret = gst_tag_list_get_string (demux->tag_list, GST_TAG_CONTAINER_FORMAT, &format);
+    if(format && strncmp(format,"MPEG",4) == 0){
+        isMPEG = TRUE;
     }
-    readmode =
-        ((readmode ==
-            PARSER_READ_MODE_FILE_BASED) ? PARSER_READ_MODE_TRACK_BASED
-        : PARSER_READ_MODE_FILE_BASED);
+
+    //use track mode for local file and file mode for streaming file.
+    if(!demux->clip_info.streaming && !isMPEG){
+        readmode = PARSER_READ_MODE_TRACK_BASED;
+    }else{
+        readmode = PARSER_READ_MODE_FILE_BASED;
+    }
+
+    if(demux->clip_info.live)
+        readmode = PARSER_READ_MODE_FILE_BASED;
+
     CORE_API (inf, setReadMode,, core_ret, handle, readmode);
-    if (core_ret != PARSER_SUCCESS)
-      goto fail;
-  }
+    if (core_ret != PARSER_SUCCESS) {
+
+        //some parser does not have track mode API, so use file mode.
+        readmode = PARSER_READ_MODE_FILE_BASED;
+        CORE_API (inf, setReadMode,, core_ret, handle, readmode);
+        if (core_ret != PARSER_SUCCESS)
+            goto fail;
+    }
+
+    //check readmode API
+    if ((readmode == PARSER_READ_MODE_TRACK_BASED) && !(CORE_API_EXIST (inf, getNextSample)))
+        goto fail;
+
+    if((readmode == PARSER_READ_MODE_FILE_BASED) && !(CORE_API_EXIST (inf, getFileNextSample)))
+        goto fail;
+
+    if(readmode == PARSER_READ_MODE_TRACK_BASED){
+        GST_ERROR("***final track mode");
+    }
+    if(readmode == PARSER_READ_MODE_FILE_BASED){
+        GST_ERROR("***final file mode");
+    }
 
   demux->clip_info.read_mode = demux->clip_info.suggest_read_mode = readmode;
   if ((readmode == PARSER_READ_MODE_FILE_BASED)
@@ -3791,7 +3937,6 @@ aiurdemux_check_long_interleave (GstAiurDemux * demux, AiurDemuxStream * stream)
   }
 }
 
-
 static gint
 aiurdemux_choose_next_stream (GstAiurDemux * demux)
 {
@@ -3831,6 +3976,43 @@ aiurdemux_choose_next_stream (GstAiurDemux * demux)
   return track_num;
 }
 
+static void
+aiurdemux_check_interleave_stream_eos (GstAiurDemux * demux)
+{
+    int n;
+    gint track_num = 0;
+    gint64 min_time = -1;
+    AiurDemuxStream *stream;
+    AiurDemuxStream *min_stream = NULL;
+    gboolean bQueueFull = FALSE;
+    if(demux->n_streams <= 1)
+        return;
+    for (n = 0; n < demux->n_streams; n++) {
+        stream = demux->streams[n];
+        if (!stream->valid) {
+          continue;
+        }
+        if ((demux->interleave_queue_size)
+            && (stream->buf_queue_size > demux->interleave_queue_size)) {
+          GST_LOG_OBJECT(demux,"bQueueFull ");
+          bQueueFull = TRUE;
+        }
+        if(min_time < 0){
+            min_time = stream->last_stop;
+            track_num = stream->track_idx;
+            min_stream = stream;
+        }else if (min_time > 0 && stream->last_stop < min_time ) {
+          min_time = stream->last_stop;
+          track_num = stream->track_idx;
+          min_stream = stream;
+        }
+    }
+    if(bQueueFull && (min_stream->buf_queue) && (g_queue_is_empty (min_stream->buf_queue))){
+        MARK_STREAM_EOS (demux, min_stream);
+		 g_print (BLUE_STR  ("file mode interleave detect !!! send EOS to track%d \n",track_num));
+    }
+    return;
+}
 
 static GstFlowReturn
 aiurdemux_send_stream_eos_all (GstAiurDemux * demux)
@@ -3886,11 +4068,24 @@ aiurdemux_push_pad_buffer (GstAiurDemux * demux,
 {
   GstFlowReturn ret;
   static int bb = 0;
+
+
+  aiurdemux_update_stream_position (demux, stream, buffer);
+  if (stream->block) {
+    if ((GST_CLOCK_TIME_IS_VALID (GST_BUFFER_TIMESTAMP (buffer)))
+        && (GST_BUFFER_TIMESTAMP (buffer) +
+            GST_BUFFER_DURATION (buffer) <
+            stream->time_position)) {
+      gst_buffer_unref(buffer);
+      ret = GST_FLOW_OK;
+      GST_LOG("drop %s buffer for block",AIUR_MEDIATYPE2STR (stream->type));
+      goto bail;
+    }
+    stream->block = FALSE;
+  }
   GST_LOG ("%s push sample %" GST_TIME_FORMAT " size %d",
       AIUR_MEDIATYPE2STR (stream->type),
       GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (buffer)), GST_BUFFER_SIZE (buffer));
-
-  aiurdemux_update_stream_position (demux, stream, buffer);
   ret = gst_pad_push (stream->pad, buffer);
 
   MM_UNREGRES (buffer, RES_GSTBUFFER);
@@ -3955,6 +4150,7 @@ aiurdemux_loop_state_movie (GstAiurDemux * demux)
       if (demux->interleave_queue_size) {
         track_idx = aiurdemux_choose_next_stream (demux);
         stream = aiurdemux_trackidx_to_stream (demux, track_idx);
+        aiurdemux_check_interleave_stream_eos(demux);
         if ((stream->buf_queue)
             && (!g_queue_is_empty (stream->buf_queue))) {
           gstbuf = g_queue_pop_head (stream->buf_queue);
@@ -4035,6 +4231,8 @@ aiurdemux_loop_state_movie (GstAiurDemux * demux)
           ret = GST_FLOW_UNEXPECTED;
           goto beach;
         }
+        if(PARSER_READ_ERROR == core_ret)
+             goto beach;
       }
 
     } else if (PARSER_ERR_INVALID_MEDIA == core_ret) {
@@ -4083,7 +4281,7 @@ aiurdemux_loop_state_movie (GstAiurDemux * demux)
         stream->partial_sample = TRUE;
       } else {
         gint sample_size;
-        if (sample_size = gst_adapter_available (stream->adapter)) {
+        if ((sample_size = gst_adapter_available (stream->adapter))&&(stream->buffer)) {
           GstBuffer *newbuf =
               gst_buffer_new_and_alloc (sample_size +
               GST_BUFFER_SIZE (stream->buffer));
@@ -4100,7 +4298,8 @@ aiurdemux_loop_state_movie (GstAiurDemux * demux)
           MM_REGRES (stream->buffer, RES_GSTBUFFER);
         }
         stream->partial_sample = FALSE;
-        if (stream->sample_stat.start == stream->last_start) {
+        if ((stream->sample_stat.start == stream->last_start) 
+            && !(stream->type == MEDIA_VIDEO && stream->codec_type == VIDEO_ON2_VP)) {
           stream->sample_stat.start = GST_CLOCK_TIME_NONE;
         }
 
@@ -4117,11 +4316,14 @@ aiurdemux_loop_state_movie (GstAiurDemux * demux)
     }
 
   } while (sampleFlags & FLAG_SAMPLE_NOT_FINISHED);
+  if ((stream) && (stream->buffer)) {
   if (demux->play_mode != AIUR_PLAY_MODE_NORMAL) {
     GST_BUFFER_FLAG_SET (stream->buffer, GST_BUFFER_FLAG_DISCONT);
   }
 
-  if ((stream) && (stream->buffer)) {
+    GST_LOG_OBJECT (demux, "CHECK track_idx=%d,usStartTime=%lld,sampleFlags=%x",track_idx,stream->sample_stat.start,stream->sample_stat.flag);
+    if(demux->clip_info.live)
+        aiurdemux_check_start_offset(demux, stream);
     aiurdemux_check_discont (demux, stream);
     aiurdemux_adjust_timestamp (demux, stream, stream->buffer);
     if (stream->new_segment) {
@@ -4138,22 +4340,39 @@ aiurdemux_loop_state_movie (GstAiurDemux * demux)
 
     if (stream->buffer) {
       if (stream->valid) {
-        if (stream->block) {
-          if ((GST_CLOCK_TIME_IS_VALID (GST_BUFFER_TIMESTAMP (stream->buffer)))
-              && (GST_BUFFER_TIMESTAMP (stream->buffer) +
-                  GST_BUFFER_DURATION (stream->buffer) <
-                  stream->time_position)) {
-            goto beach;
-          }
-          stream->block = FALSE;
-        }
 
 
-        if (G_UNLIKELY (demux->new_segment_mask)) {
-          aiurdemux_check_long_interleave (demux, stream);
-        }
+        //if (G_UNLIKELY (demux->new_segment_mask)) {
+        //  aiurdemux_check_long_interleave (demux, stream);
+        //}
 
         if (stream->buffer) {
+#ifdef MERGE_H264_CODEC_DATA
+            if((stream->type == MEDIA_VIDEO)
+                && (stream->codec_type == VIDEO_H264)
+                && (stream->send_codec_data == FALSE)
+                && (stream->merge_codec_data == TRUE)
+                && (stream->codec_data.length)){
+                GstBuffer *newbuf =gst_buffer_new_and_alloc(GST_BUFFER_SIZE (stream->buffer)
+                    + stream->codec_data.length);
+                memcpy (GST_BUFFER_DATA (newbuf),
+                    stream->codec_data.codec_data, stream->codec_data.length);
+                memcpy (GST_BUFFER_DATA (newbuf)+stream->codec_data.length,
+                    GST_BUFFER_DATA (stream->buffer), GST_BUFFER_SIZE (stream->buffer));
+                GST_BUFFER_SIZE(newbuf) = GST_BUFFER_SIZE (stream->buffer) + stream->codec_data.length;
+                GST_BUFFER_FLAGS(newbuf) = GST_BUFFER_FLAGS(stream->buffer);
+                GST_BUFFER_TIMESTAMP(newbuf) = GST_BUFFER_TIMESTAMP(stream->buffer);
+                GST_BUFFER_DURATION(newbuf) = GST_BUFFER_DURATION(stream->buffer);
+                GST_BUFFER_OFFSET(newbuf) = GST_BUFFER_OFFSET(stream->buffer);
+                GST_BUFFER_OFFSET_END(newbuf) = GST_BUFFER_OFFSET_END(stream->buffer);
+                gst_buffer_unref (stream->buffer);
+                MM_UNREGRES (stream->buffer, RES_GSTBUFFER);
+                stream->buffer = newbuf;
+                stream->merge_codec_data = FALSE;
+                MM_REGRES (stream->buffer, RES_GSTBUFFER);
+                GST_DEBUG_OBJECT(demux,"merge H264 codec data,size=%d, len=%d",GST_BUFFER_SIZE(stream->buffer),stream->codec_data.length);
+          }
+#endif
           gst_buffer_set_caps (stream->buffer, GST_PAD_CAPS (stream->pad));
           if (demux->interleave_queue_size) {
             stream->buf_queue_size += GST_BUFFER_SIZE (stream->buffer);

@@ -39,6 +39,7 @@
 
 #include <fcntl.h>
 #include <sys/ioctl.h>
+#include <sys/types.h>
 //#if ((!defined (_MX233)) && (!defined (_MX28)) && (!defined (_MX50)))
 //#include <linux/mxcfb.h>
 //#else

@@ -203,6 +203,9 @@ destroyPlayList(void * hdl)
     PlayList * pl = (PlayList *)hdl;
     PlayItemCtl * item, *itemnext;
 
+    if (!pl)
+      return;
+
      if (pl->title){
       MEM_FREE(pl->title);
      }

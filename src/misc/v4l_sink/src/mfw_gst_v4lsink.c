@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005-2012, Freescale Semiconductor, Inc. 
+ * Copyright (c) 2005-2014, Freescale Semiconductor, Inc. 
  */
 
 /*
@@ -310,6 +310,9 @@ mfw_gst_v4l2sink_query_support_formats ()
 
   ret = TRUE;
 
+  if(fmtdesc.index == 0)
+      ret = FALSE;
+
 fail:
   return ret;
 
@@ -333,6 +336,7 @@ IMPORTANT NOTES:    None
 static void
 mfw_gst_v4lsink_create_event_thread (MFW_GST_V4LSINK_INFO_T * v4l_info)
 {
+
   if (v4l_info->x11enabled) {
     gint timeout = 20;          //timeout 2s
     while ((v4l_info->disp_height < 16) && (timeout-- > 0)) {
@@ -341,20 +345,12 @@ mfw_gst_v4lsink_create_event_thread (MFW_GST_V4LSINK_INFO_T * v4l_info)
 
     }
 
-    g_mutex_lock (v4l_info->flow_lock);
     if ((v4l_info->gstXInfo)
         && (v4l_info->gstXInfo->running == FALSE)) {
-
       v4l_info->gstXInfo->running = TRUE;
-      g_mutex_unlock (v4l_info->flow_lock);
-
       v4l_info->gstXInfo->event_thread =
           g_thread_create ((GThreadFunc) mfw_gst_xv4l2_event_thread, v4l_info,
           TRUE, NULL);
-    }
-    else
-    {
-      g_mutex_unlock (v4l_info->flow_lock);
     }
 
     if (!(IS_PXP (v4l_info->chipcode)))
@@ -365,6 +361,7 @@ mfw_gst_v4lsink_create_event_thread (MFW_GST_V4LSINK_INFO_T * v4l_info)
       mfw_gst_set_gbl_alpha (v4l_info->fd_fb, 0);
   }
 }
+
 
 
 /*=============================================================================
@@ -431,30 +428,6 @@ mfw_gst_v4lsink_set_xwindow_id (GstXOverlay * overlay, XID xwindow_id)
 
   return;
 
-}
-
-
-/*=============================================================================
-FUNCTION:           mfw_gst_v4lsink_set_window_handle
-
-DESCRIPTION:        This function handle the set_window_handle event.
-
-ARGUMENTS PASSED:
-        overlay     -  Pointer to GstXOverlay
-        handle      - Pointer to XID
-
-
-RETURN VALUE:
-
-PRE-CONDITIONS:     None
-POST-CONDITIONS:    None
-IMPORTANT NOTES:    None
-=============================================================================*/
-static void
-mfw_gst_v4lsink_set_window_handle (GstXOverlay * overlay, guintptr handle)
-{
-  GST_DEBUG("Set xwindow_id=%lu", (XID)handle);
-  mfw_gst_v4lsink_set_xwindow_id(overlay, (XID)handle);
 }
 
 
@@ -557,7 +530,6 @@ IMPORTANT NOTES:    None
 static void
 mfw_gst_v4lsink_xoverlay_init (GstXOverlayClass * iface)
 {
-  iface->set_window_handle = mfw_gst_v4lsink_set_window_handle;
   iface->set_xwindow_id = mfw_gst_v4lsink_set_xwindow_id;
   iface->expose = mfw_gst_v4lsink_expose;
   iface->handle_events = mfw_gst_v4lsink_set_event_handling;
@@ -801,61 +773,46 @@ mfw_gst_v4lsink_set_property (GObject * object, guint prop_id,
   switch (prop_id) {
 
     case DISP_WIDTH:
-      g_mutex_lock (v4l_info->flow_lock);
       v4l_info->disp_width = g_value_get_int (value);
-      g_mutex_unlock (v4l_info->flow_lock);
       GST_DEBUG ("width = %d", v4l_info->disp_width);
       break;
     case DISP_HEIGHT:
-      g_mutex_lock (v4l_info->flow_lock);
       v4l_info->disp_height = g_value_get_int (value);
-      g_mutex_unlock (v4l_info->flow_lock);
       GST_DEBUG ("height = %d", v4l_info->disp_height);
       break;
     case AXIS_TOP:
-      g_mutex_lock (v4l_info->flow_lock);
       v4l_info->axis_top = g_value_get_int (value);
-      g_mutex_unlock (v4l_info->flow_lock);
       GST_DEBUG ("axis_top = %d", v4l_info->axis_top);
       break;
     case AXIS_LEFT:
-      g_mutex_lock (v4l_info->flow_lock);
       v4l_info->axis_left = g_value_get_int (value);
-      g_mutex_unlock (v4l_info->flow_lock);
       GST_DEBUG ("axis_left = %d", v4l_info->axis_left);
       break;
     case ROTATE:
-      g_mutex_lock (v4l_info->flow_lock);
       v4l_info->rotate = g_value_get_int (value);
-      g_mutex_unlock (v4l_info->flow_lock);
       g_print ("rotate = %d", v4l_info->rotate);
 
       break;
     case CROP_LEFT:
-      g_mutex_lock (v4l_info->flow_lock);
       v4l_info->crop_left = g_value_get_int (value);
-      g_mutex_unlock (v4l_info->flow_lock);
+      v4l_info->crop_left = ROUNDUP32 (v4l_info->crop_left);
       GST_DEBUG ("crop_left = %d", v4l_info->crop_left);
       break;
 
     case CROP_RIGHT:
-      g_mutex_lock (v4l_info->flow_lock);
       v4l_info->crop_right = g_value_get_int (value);
-      g_mutex_unlock (v4l_info->flow_lock);
+      v4l_info->crop_right = ROUNDUP8 (v4l_info->crop_right);
       GST_DEBUG ("crop_right = %d", v4l_info->crop_right);
       break;
 
     case CROP_TOP:
-      g_mutex_lock (v4l_info->flow_lock);
       v4l_info->crop_top = g_value_get_int (value);
-      g_mutex_unlock (v4l_info->flow_lock);
+      v4l_info->crop_top = ROUNDUP32 (v4l_info->crop_top);
       GST_DEBUG ("crop_top = %d", v4l_info->crop_top);
       break;
 
     case CROP_BOTTOM:
-      g_mutex_lock (v4l_info->flow_lock);
       v4l_info->crop_bottom = g_value_get_int (value);
-      g_mutex_unlock (v4l_info->flow_lock);
       GST_DEBUG ("crop_bottom = %d", v4l_info->crop_bottom);
       break;
 
@@ -1108,8 +1065,7 @@ mfw_gst_v4lsink_show_frame (GstBaseSink * basesink, GstBuffer * buf)
     return GST_FLOW_OK;
   }
 
-
-  if (v4l_info->stream_on == TRUE) {
+  if (v4l_info->stream_on == TRUE || v4l_info->need_check_params == TRUE) {
     g_mutex_lock (v4l_info->flow_lock);
 
     if (G_UNLIKELY ((v4l_info->setpara & PARAM_SET_V4L) == PARAM_SET_V4L)) {
@@ -1122,8 +1078,6 @@ mfw_gst_v4lsink_show_frame (GstBaseSink * basesink, GstBuffer * buf)
         mfw_gst_xv4l2_clear_color (v4l_info);
       }
 #endif
-
-      v4l_info->setpara &= (~PARAM_SET_V4L);
 
 
 
@@ -1148,6 +1102,7 @@ mfw_gst_v4lsink_show_frame (GstBaseSink * basesink, GstBuffer * buf)
       result = mfw_gst_v4l2_input_init (v4l_info, v4l_info->outformat);
       if (result != TRUE) {
         GST_ERROR ("Failed to initalize the v4l driver");
+        v4l_info->setpara &= (~PARAM_SET_V4L);
         g_mutex_unlock (v4l_info->flow_lock);
         return GST_FLOW_ERROR;
       }
@@ -1156,6 +1111,7 @@ mfw_gst_v4lsink_show_frame (GstBaseSink * basesink, GstBuffer * buf)
 
       if (result != TRUE) {
         g_print ("\nFailed to initalize the display\n");
+        v4l_info->setpara &= (~PARAM_SET_V4L);
         g_mutex_unlock (v4l_info->flow_lock);
         return GST_FLOW_OK;
       }
@@ -1165,6 +1121,7 @@ mfw_gst_v4lsink_show_frame (GstBaseSink * basesink, GstBuffer * buf)
       }
 #endif
 
+      v4l_info->setpara &= (~PARAM_SET_V4L);
       g_mutex_unlock (v4l_info->flow_lock);
       GST_DEBUG ("setpara end");
 
@@ -1191,6 +1148,11 @@ mfw_gst_v4lsink_show_frame (GstBaseSink * basesink, GstBuffer * buf)
       g_mutex_unlock (v4l_info->flow_lock);
 
     }
+  }
+
+  if (v4l_info->drop_frame == TRUE) {
+    GST_DEBUG("Drop frame");
+    return GST_FLOW_OK;
   }
 
   /* Clear the frame buffer */
@@ -1220,6 +1182,7 @@ mfw_gst_v4lsink_show_frame (GstBaseSink * basesink, GstBuffer * buf)
       } else {
         GST_WARNING
             ("Drop because no reserved hwbuffer%d", v4l_info->v4lqueued);
+        ((MFWGstV4LSinkBuffer *) outbuffer)->bufstate = BUF_STATE_SHOWED;
         return GST_FLOW_OK;
       }
     }
@@ -1424,6 +1387,12 @@ mfw_gst_v4lsink_set_format (MFW_GST_V4LSINK_INFO_T * v4l_info, GstCaps * caps)
     map++;
   };
 
+  v4l_info->width = v4l_info->width -
+      v4l_info->cr_left_bypixel - v4l_info->cr_right_bypixel;
+
+  v4l_info->height = v4l_info->height -
+      v4l_info->cr_top_bypixel - v4l_info->cr_bottom_bypixel;
+
   return TRUE;
 }
 
@@ -1512,9 +1481,6 @@ static GstStateChangeReturn
 mfw_gst_v4lsink_change_state (GstElement * element, GstStateChange transition)
 {
   MFW_GST_V4LSINK_INFO_T *v4l_info = MFW_GST_V4LSINK (element);
-  guint width = 0;
-  guint disp_width = 0;
-  guint disp_height = 0;
 
   GstStateChangeReturn ret = GST_STATE_CHANGE_SUCCESS;
   guint8 index;
@@ -1550,6 +1516,7 @@ mfw_gst_v4lsink_change_state (GstElement * element, GstStateChange transition)
 
       memset (&v4l_info->crop, 0, sizeof (struct v4l2_crop));
       memset (&v4l_info->prevCrop, 0, sizeof (struct v4l2_crop));
+      memset (&v4l_info->previCrop, 0, sizeof (struct v4l2_rect));
 
 #ifdef USE_X11
       if (v4l_info->gstXInfo == NULL) {
@@ -1564,15 +1531,11 @@ mfw_gst_v4lsink_change_state (GstElement * element, GstStateChange transition)
       break;
     case GST_STATE_CHANGE_PAUSED_TO_PLAYING:
 
+
+
 #ifdef USE_X11
       if (v4l_info->x11enabled) {
-        g_mutex_lock (v4l_info->flow_lock);
-        width = v4l_info->width;
-        disp_width = v4l_info->disp_width;
-        g_mutex_unlock (v4l_info->flow_lock);
-
-        GST_WARNING("Try to Create event thread: width=%d, disp_width=%d", width, disp_width);
-        if (width != -1 || disp_width > 1)
+        if (v4l_info->width != -1)
           mfw_gst_v4lsink_create_event_thread (v4l_info);
 
         mfw_gst_xv4l2_refresh_geometry (v4l_info);
@@ -1582,11 +1545,14 @@ mfw_gst_v4lsink_change_state (GstElement * element, GstStateChange transition)
       mfw_gst_set_gbl_alpha (v4l_info->fd_fb, 0);
 #endif
 
-      g_mutex_lock (v4l_info->flow_lock);
-      disp_width = v4l_info->disp_width;
-      disp_height = v4l_info->disp_height;
-      g_mutex_unlock (v4l_info->flow_lock);
-      mfw_gst_v4l2_display_init (v4l_info, disp_width, disp_height);
+      if (mfw_gst_v4l2_display_init (v4l_info, v4l_info->disp_width,
+          v4l_info->disp_height) != TRUE) {
+        if (IS_PXP (v4l_info->chipcode)) {
+          // workaround for MX6SL can't allocate DMA memory cause system hang issue.
+          GST_ERROR ("mfw_gst_v4l2_display_init failed.\n");
+          return GST_STATE_CHANGE_FAILURE;
+        }
+      }
 
       break;
 
@@ -1719,7 +1685,11 @@ mfw_gst_v4lsink_init (MFW_GST_V4LSINK_INFO_T * v4l_info,
   v4l_info->rotate = 0;
   v4l_info->prevRotate = 0;
   v4l_info->crop_left = 0;
+  v4l_info->crop_right = 0;
   v4l_info->crop_top = 0;
+  v4l_info->crop_bottom = 0;
+  v4l_info->drop_frame = FALSE;
+  v4l_info->need_check_params = FALSE;
 
   v4l_info->enable_deinterlace = TRUE;
 
@@ -1768,6 +1738,7 @@ mfw_gst_v4lsink_init (MFW_GST_V4LSINK_INFO_T * v4l_info,
 
   memset (&v4l_info->crop, 0, sizeof (struct v4l2_crop));
   memset (&v4l_info->prevCrop, 0, sizeof (struct v4l2_crop));
+  memset (&v4l_info->previCrop, 0, sizeof (struct v4l2_rect));
 
   mfw_gst_fb0_open (&v4l_info->fd_fb);
   v4l_info->chipcode = getChipCode ();
@@ -1824,7 +1795,7 @@ mfw_gst_v4lsink_class_init (MFW_GST_V4LSINK_INFO_CLASS_T * klass)
   gstvs_class = (GstBaseSinkClass *) klass;
 
   gstelement_class->change_state =
-      GST_DEBUG_FUNCPTR (mfw_gst_v4lsink_change_state);
+    GST_DEBUG_FUNCPTR (mfw_gst_v4lsink_change_state);
 
 
   parent_class = g_type_class_peek_parent (klass);
@@ -1837,152 +1808,155 @@ mfw_gst_v4lsink_class_init (MFW_GST_V4LSINK_INFO_CLASS_T * klass)
   gstvs_class->render = GST_DEBUG_FUNCPTR (mfw_gst_v4lsink_show_frame);
   gstvs_class->buffer_alloc = GST_DEBUG_FUNCPTR (mfw_gst_v4lsink_buffer_alloc);
 
-
-  g_object_class_install_property (gobject_class, DISP_WIDTH,
-      g_param_spec_int ("disp-width",
+  //only support below properties for IPU based SoC
+  CHIP_CODE chipcode = getChipCode ();
+  if (!IS_PXP (chipcode)) {
+    g_object_class_install_property (gobject_class, DISP_WIDTH,
+        g_param_spec_int ("disp-width",
           "Disp_Width",
           "gets the width of the image to be displayed",
           0, G_MAXINT, 0, G_PARAM_READWRITE));
 
-  g_object_class_install_property (gobject_class, DISP_HEIGHT,
-      g_param_spec_int ("disp-height",
+    g_object_class_install_property (gobject_class, DISP_HEIGHT,
+        g_param_spec_int ("disp-height",
           "Disp_Height",
           "gets the height of the image to be displayed",
           0, G_MAXINT, 0, G_PARAM_READWRITE));
 
-  g_object_class_install_property (gobject_class, AXIS_TOP,
-      g_param_spec_int ("axis-top",
+    g_object_class_install_property (gobject_class, AXIS_TOP,
+        g_param_spec_int ("axis-top",
           "axis-top",
           "gets the top co-ordinate of the origin of display",
           0, G_MAXINT, 0, G_PARAM_READWRITE));
 
-  g_object_class_install_property (gobject_class, AXIS_LEFT,
-      g_param_spec_int ("axis-left",
+    g_object_class_install_property (gobject_class, AXIS_LEFT,
+        g_param_spec_int ("axis-left",
           "axis-left",
           "gets the left co-ordinate of the origin of display",
           0, G_MAXINT, 0, G_PARAM_READWRITE));
-  /* FixME: The i.MX233 does not support rotate */
+    /* FixME: The i.MX233 does not support rotate */
 #if ((!defined (_MX233)) && (!defined (_MX28)))
-  g_object_class_install_property (gobject_class, ROTATE,
-      g_param_spec_int ("rotate", "Rotate",
+    g_object_class_install_property (gobject_class, ROTATE,
+        g_param_spec_int ("rotate", "Rotate",
           "gets the angle at which display is to be rotated",
           0, G_MAXINT, 0, G_PARAM_READWRITE));
 #endif
 
-  g_object_class_install_property (gobject_class, CROP_LEFT,
-      g_param_spec_int ("crop_left_by_pixel",
+    g_object_class_install_property (gobject_class, CROP_LEFT,
+        g_param_spec_int ("crop_left_by_pixel",
           "crop-left-by-pixel",
           "set the input image cropping in the left (width)",
           0, G_MAXINT, 0, G_PARAM_READWRITE));
 
-  g_object_class_install_property (gobject_class, CROP_RIGHT,
-      g_param_spec_int ("crop_right_by_pixel",
+    g_object_class_install_property (gobject_class, CROP_RIGHT,
+        g_param_spec_int ("crop_right_by_pixel",
           "crop-right-by-pixel",
           "set the input image cropping in the right (width)",
           0, G_MAXINT, 0, G_PARAM_READWRITE));
 
 
-  g_object_class_install_property (gobject_class, CROP_TOP,
-      g_param_spec_int ("crop_top_by_pixel",
+    g_object_class_install_property (gobject_class, CROP_TOP,
+        g_param_spec_int ("crop_top_by_pixel",
           "crop-top-by-pixel",
           "set the input image cropping in the top (height)",
           0, G_MAXINT, 0, G_PARAM_READWRITE));
 
-  g_object_class_install_property (gobject_class, CROP_BOTTOM,
-      g_param_spec_int ("crop_bottom_by_pixel",
+    g_object_class_install_property (gobject_class, CROP_BOTTOM,
+        g_param_spec_int ("crop_bottom_by_pixel",
           "crop-bottom-by-pixel",
           "set the input image cropping in the bottom (height)",
           0, G_MAXINT, 0, G_PARAM_READWRITE));
 
 
-  g_object_class_install_property (gobject_class, SETPARA,
-      g_param_spec_int ("setpara", "Setpara",
+    g_object_class_install_property (gobject_class, SETPARA,
+        g_param_spec_int ("setpara", "Setpara",
           "set parameter of V4L2, 1: Set V4L 2: Set Color",
           0, 3, 0, G_PARAM_READWRITE));
 
-  /*For TV-Out & para change on-the-fly */
+    /*For TV-Out & para change on-the-fly */
 #ifdef ENABLE_TVOUT
-  g_object_class_install_property (gobject_class, TV_OUT,
-      g_param_spec_boolean ("tv-out", "TV-OUT",
+    g_object_class_install_property (gobject_class, TV_OUT,
+        g_param_spec_boolean ("tv-out", "TV-OUT",
           "set output to TV-OUT", FALSE, G_PARAM_READWRITE));
-  g_object_class_install_property (gobject_class, TV_MODE,
-      g_param_spec_int ("tv-mode", "TV-MODE",
+    g_object_class_install_property (gobject_class, TV_MODE,
+        g_param_spec_int ("tv-mode", "TV-MODE",
           "set mode to TV-OUT, 0: NTSC, 1: PAL, 2: 720p ",
           0, 2, 0, G_PARAM_READWRITE));
 #endif
 
-  g_object_class_install_property (gobject_class, DUMP_LOCATION,
-      g_param_spec_string ("dump_location",
-          "Dump File Location",
-          "Location of the file to write cropped video YUV stream."
-          "Enable it will output image to file instead of V4L device",
-          NULL, G_PARAM_READWRITE));
 
-
-  g_object_class_install_property (gobject_class, PROP_FORCE_ASPECT_RATIO,
-      g_param_spec_boolean
-      ("force-aspect-ratio",
-          "force-aspect-ratio",
-          "Force Aspect Ratio", FALSE, G_PARAM_READWRITE));
+    g_object_class_install_property (gobject_class, PROP_FORCE_ASPECT_RATIO,
+        g_param_spec_boolean
+        ("force-aspect-ratio",
+         "force-aspect-ratio",
+         "Force Aspect Ratio", FALSE, G_PARAM_READWRITE));
 
 #ifdef USE_X11
-  g_object_class_install_property (gobject_class, PROP_X11ENABLED,
-      g_param_spec_boolean ("x11enable",
+    g_object_class_install_property (gobject_class, PROP_X11ENABLED,
+        g_param_spec_boolean ("x11enable",
           "X11Enable", "Enabled x11 event handle", TRUE, G_PARAM_READWRITE));
 #endif
 
 
 #if ((defined (_MX6) || defined (_MX37) || defined (_MX51)) && defined (LOC_ALPHA_SUPPORT))
-  g_object_class_install_property (gobject_class, PROP_ALPHA_ENABLE,
-      g_param_spec_int ("alpha-enable",
+    g_object_class_install_property (gobject_class, PROP_ALPHA_ENABLE,
+        g_param_spec_int ("alpha-enable",
           "alpha enable",
           "set/get alpha enable mask, 0:disable, 1:local, 2:global",
           1, 2, 1, G_PARAM_READWRITE));
-  g_object_class_install_property (gobject_class, PROP_ALPHA_VALUE,
-      g_param_spec_int ("alpha",
+    g_object_class_install_property (gobject_class, PROP_ALPHA_VALUE,
+        g_param_spec_int ("alpha",
           "alpha value",
           "set/get alpha value, -1:set alpha by local buffer, 0-255: set all same alpha value",
           -1, 255, 255, G_PARAM_READWRITE));
 
-  mfw_gst_v4lsink_signals[SIGNAL_LOCALPHA_BUFFER_READY] =
+    mfw_gst_v4lsink_signals[SIGNAL_LOCALPHA_BUFFER_READY] =
       g_signal_new ("loc-buf-ready", G_TYPE_FROM_CLASS (klass),
-      G_SIGNAL_RUN_LAST,
-      G_STRUCT_OFFSET (MFW_GST_V4LSINK_INFO_CLASS_T,
-          lalp_buf_ready_notify), NULL, NULL,
-      g_cclosure_marshal_VOID__POINTER, G_TYPE_NONE, 1, G_TYPE_POINTER);
+          G_SIGNAL_RUN_LAST,
+          G_STRUCT_OFFSET (MFW_GST_V4LSINK_INFO_CLASS_T,
+            lalp_buf_ready_notify), NULL, NULL,
+          g_cclosure_marshal_VOID__POINTER, G_TYPE_NONE, 1, G_TYPE_POINTER);
 
 #endif
-
-  g_object_class_install_property (gobject_class, PROP_RENDERED_FRAMES,
-      g_param_spec_int ("rendered",
-          "rendered",
-          "Get the total rendered frames", 0, G_MAXINT, 0, G_PARAM_READWRITE));
 
 #if defined (VL4_STREAM_CALLBACK)
-  mfw_gst_v4lsink_signals[SIGNAL_V4L_STREAM_CALLBACK] =
+    mfw_gst_v4lsink_signals[SIGNAL_V4L_STREAM_CALLBACK] =
       g_signal_new ("v4lstreamevent", G_TYPE_FROM_CLASS (klass),
-      G_SIGNAL_RUN_LAST,
-      G_STRUCT_OFFSET (MFW_GST_V4LSINK_INFO_CLASS_T,
-          v4lstream_callback), NULL, NULL,
-      g_cclosure_marshal_VOID__INT, G_TYPE_NONE, 1, G_TYPE_INT);
+          G_SIGNAL_RUN_LAST,
+          G_STRUCT_OFFSET (MFW_GST_V4LSINK_INFO_CLASS_T,
+            v4lstream_callback), NULL, NULL,
+          g_cclosure_marshal_VOID__INT, G_TYPE_NONE, 1, G_TYPE_INT);
 #endif
-  g_object_class_install_property (gobject_class, PROP_DEVICE_NAME,
-      g_param_spec_string ("device",
-          "V4L device name", "V4L device name", NULL, G_PARAM_READWRITE));
 
-  g_object_class_install_property (gobject_class, PROP_DEINTERLACE_MOTION,
-      g_param_spec_int ("motion",
+    g_object_class_install_property (gobject_class, PROP_DEINTERLACE_MOTION,
+        g_param_spec_int ("motion",
           "motion",
           "The interlace motion setting: 0 - low motion, 1 - medium motion, 2 - high motion.",
           0, 2, 2, G_PARAM_READWRITE));
 
-  g_object_class_install_property (gobject_class,PROP_DEINTERLACE_ENABLE,
-      g_param_spec_boolean ("deinterlace", "deinterlace",
+    g_object_class_install_property (gobject_class,PROP_DEINTERLACE_ENABLE,
+        g_param_spec_boolean ("deinterlace", "deinterlace",
           "set deinterlace enabled", FALSE, G_PARAM_READWRITE));
 
+  }
+
+  g_object_class_install_property (gobject_class, PROP_DEVICE_NAME,
+      g_param_spec_string ("device",
+        "V4L device name", "V4L device name", NULL, G_PARAM_READWRITE));
+
+  g_object_class_install_property (gobject_class, PROP_RENDERED_FRAMES,
+      g_param_spec_int ("rendered",
+        "rendered",
+        "Get the total rendered frames", 0, G_MAXINT, 0, G_PARAM_READWRITE));
+
+  g_object_class_install_property (gobject_class, DUMP_LOCATION,
+      g_param_spec_string ("dump_location",
+        "Dump File Location",
+        "Location of the file to write cropped video YUV stream."
+        "Enable it will output image to file instead of V4L device",
+        NULL, G_PARAM_READWRITE));
 
   return;
-
 }
 
 
@@ -2020,6 +1994,7 @@ mfw_gst_v4lsink_buffer_alloc (GstBaseSink * bsink, guint64 offset,
   gint frame_buffer_size;
   gint max_frames;
   gint hwbuffernumforcodec;
+  GstFlowReturn ret;
 
   gboolean result = FALSE;
 
@@ -2096,7 +2071,6 @@ mfw_gst_v4lsink_buffer_alloc (GstBaseSink * bsink, guint64 offset,
       v4l_info->buffers_required = MIN_BUFFER_NUM;
     }
 
-
     switch (v4l_info->outformat) {
       case V4L2_PIX_FMT_RGB32:
         frame_buffer_size = (v4l_info->width * v4l_info->height) * 4;
@@ -2120,28 +2094,16 @@ mfw_gst_v4lsink_buffer_alloc (GstBaseSink * bsink, guint64 offset,
         break;
     }
 
-    max_frames = MAX_V4L_ALLOW_SIZE_IN_BYTE / frame_buffer_size;
+    if (frame_buffer_size)
+      max_frames = MAX_V4L_ALLOW_SIZE_IN_BYTE / frame_buffer_size;
+    else
+      return GST_FLOW_ERROR;
 
     GST_DEBUG ("Decoder maximal support %d buffers.", max_frames);
 
     if (v4l_info->buffers_required > max_frames) {
       v4l_info->buffers_required = max_frames;
     }
-#if !defined(_Mx27)
-    if ((v4l_info->cr_left_bypixel == 0) && (v4l_info->crop_left != 0))
-#endif
-    {
-      v4l_info->cr_left_bypixel = v4l_info->crop_left;
-      v4l_info->cr_top_bypixel = v4l_info->crop_top;
-      v4l_info->cr_right_bypixel = v4l_info->crop_right;
-      v4l_info->cr_bottom_bypixel = v4l_info->crop_bottom;
-    }
-
-    v4l_info->width = v4l_info->width -
-        v4l_info->cr_left_bypixel - v4l_info->cr_right_bypixel;
-
-    v4l_info->height = v4l_info->height -
-        v4l_info->cr_top_bypixel - v4l_info->cr_bottom_bypixel;
 
     result = mfw_gst_v4l2_input_init (v4l_info, v4l_info->outformat);
 
@@ -2163,15 +2125,14 @@ mfw_gst_v4lsink_buffer_alloc (GstBaseSink * bsink, guint64 offset,
       GST_INFO ("element state already switch to PLAYING, create event thread");
       mfw_gst_v4lsink_create_event_thread (v4l_info);
 
-      guint disp_width = 0;
-      guint disp_height = 0;
-      g_mutex_lock (v4l_info->flow_lock);
-      disp_width = v4l_info->disp_width;
-      disp_height = v4l_info->disp_height;
-      g_mutex_unlock (v4l_info->flow_lock);
-
-      mfw_gst_v4l2_display_init (v4l_info, disp_width, disp_height);
-
+      if (mfw_gst_v4l2_display_init (v4l_info, v4l_info->disp_width,
+            v4l_info->disp_height) != TRUE) {
+        if (IS_PXP (v4l_info->chipcode)) {
+          // workaround for MX6SL can't allocate DMA memory cause system hang issue.
+          GST_ERROR ("mfw_gst_v4l2_display_init failed.\n");
+          return GST_FLOW_ERROR;
+        }
+      }
     }
 #endif
 
@@ -2191,7 +2152,11 @@ mfw_gst_v4lsink_buffer_alloc (GstBaseSink * bsink, guint64 offset,
         (">>V4L_SINK: Actually buffer status:\n\thardware buffer : %d\n\tsoftware buffer : %d\n",
         v4l_info->buffers_required, v4l_info->swbuffer_max);
 
-    mfw_gst_v4l2_buffer_init (v4l_info);
+    ret = mfw_gst_v4l2_buffer_init (v4l_info);
+    if (ret != GST_FLOW_OK) {
+      GST_ERROR ("mfw_gst_v4l2_buffer_init failed.");
+      return ret;
+    }
 
     // v4l_info->setpara = PARAM_SET_V4L;
 
@@ -2236,19 +2201,60 @@ mfw_gst_v4lsink_base_init (gpointer g_class)
   GstCaps *capslist;
   GstPadTemplate *sink_template = NULL;
 
-  mfw_gst_v4l2sink_query_support_formats ();
-  /* make a list of all available caps */
-  capslist = gst_caps_new_empty ();
+  if(!mfw_gst_v4l2sink_query_support_formats ()) {
+      // failed query caps, use default setting
+      gint i;
+      guint32 formats[] = {
+          GST_MAKE_FOURCC ('I', '4', '2', '0'),
+          GST_MAKE_FOURCC ('Y', 'V', '1', '2'),
+          GST_MAKE_FOURCC ('U', 'Y', 'V', 'Y'),
+          GST_MAKE_FOURCC ('Y', 'U', 'Y', 'V'),
+          GST_MAKE_FOURCC ('Y', 'U', 'Y', '2'),
+          GST_MAKE_FOURCC ('N', 'V', '1', '2'),
+          GST_MAKE_FOURCC ('4', '2', '2', 'P'),
+          GST_MAKE_FOURCC ('Y', '4', '2', 'B')
 
-  MfwV4lFmtMap * map = g_v4lfmt_maps;
+      };
 
-  while (map->mime){
-    if (map->enable){
-      GstStructure * structure = gst_structure_from_string(map->mime, NULL);
-      gst_caps_append_structure (capslist, structure);
-    }
-    map++;
-  };
+      /* make a list of all available caps */
+      capslist = gst_caps_new_empty ();
+      for (i = 0; i < G_N_ELEMENTS (formats); i++) {
+          gst_caps_append_structure (capslist,
+                  gst_structure_new ("video/x-raw-yuv",
+                      "format",
+                      GST_TYPE_FOURCC,
+                      formats[i], "width",
+                      GST_TYPE_INT_RANGE, 1,
+                      G_MAXINT, "height",
+                      GST_TYPE_INT_RANGE, 1,
+                      G_MAXINT, "framerate",
+                      GST_TYPE_FRACTION_RANGE,
+                      0, 1, G_MAXINT, 1,
+                      NULL));
+      }
+      /* Add RGB support */
+      gst_caps_append_structure (capslist,
+              gst_structure_new ("video/x-raw-rgb",
+                  "bpp", GST_TYPE_INT_RANGE,
+                  1, 32, "depth",
+                  GST_TYPE_INT_RANGE, 1, 32,
+                  NULL));
+
+  }
+  else {
+      /* make a list of all available caps */
+      capslist = gst_caps_new_empty ();
+
+      MfwV4lFmtMap * map = g_v4lfmt_maps;
+
+      while (map->mime){
+          if (map->enable){
+              GstStructure * structure = gst_structure_from_string(map->mime, NULL);
+              gst_caps_append_structure (capslist, structure);
+          }
+          map++;
+      };
+  }
 
   sink_template = gst_pad_template_new ("sink",
       GST_PAD_SINK, GST_PAD_ALWAYS, capslist);

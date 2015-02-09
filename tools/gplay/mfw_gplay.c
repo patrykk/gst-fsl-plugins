@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2011 Freescale Semiconductor, Inc. All rights reserved.
+ * Copyright (C) 2009-2014 Freescale Semiconductor, Inc. All rights reserved.
  *
  */
 
@@ -154,6 +154,7 @@ PlayItem * playlist_next(fsl_player_handle handle, options* opt)
             pplayer->klass->stop(pplayer);
             //pplayer->klass->set_media_location(pplayer, opt->current->name, &drm_format);
             pplayer->klass->play(pplayer);
+            next = opt->current;
             break;
         }
         default:
@@ -390,6 +391,7 @@ void print_help(fsl_player_handle handle)
 //    PRINT("\t[b]Select the subtitle\n");
     PRINT("\t[f]Set full screen or not\n");
     PRINT("\t[z]resize the width and height\n");
+//    PRINT("\t[k]Set video input crop\n");
     PRINT("\t[t]Rotate\n");
     PRINT("\t[c]Setting play rate\n");
 
@@ -459,6 +461,22 @@ fsl_player_s32 display_thread_fun(fsl_player_handle handle)
             pplayer->klass->get_property(pplayer, FSL_PLAYER_PROPERTY_MUTE, (void*)(&bmute));
             pplayer->klass->get_property(pplayer, FSL_PLAYER_PROPERTY_VOLUME, (void*)(&volume));
             pplayer->klass->get_property(pplayer, FSL_PLAYER_PROPERTY_TOTAL_FRAMES, (void*)(&total_frames));
+
+            if (player_state == FSL_PLAYER_STATUS_PLAYING)
+            {
+                if( playback_rate > 1.0 && playback_rate <= 8.0 )
+                {
+                    player_state = FSL_PLAYER_STATUS_FASTFORWARD;
+                }
+                if( playback_rate > 0.0 && playback_rate < 1.0 )
+                {
+                    player_state = FSL_PLAYER_STATUS_SLOWFORWARD;
+                }
+                else if( playback_rate >= -8.0 && playback_rate <= -0.0/*-1.0*/ )
+                {
+                    player_state = FSL_PLAYER_STATUS_FASTBACKWARD;
+                }
+            }
 
             hour = (elapsed/ (fsl_player_u64)3600000000000);
             minute = (elapsed / (fsl_player_u64)60000000000) - (hour * 60);
@@ -551,6 +569,7 @@ fsl_player_s32 msg_thread_fun(fsl_player_handle handle)
                 case FSL_PLAYER_UI_MSG_EXIT:
                 {
                     printf("FSL_PLAYER_UI_MSG_EXIT\n");
+                    player_exit(handle);
                     fsl_player_ui_msg_free(msg);
                     return 0;
                 }
@@ -655,7 +674,7 @@ void eos_callback(void *data)
 static void signal_handler(int sig)
 {
     int ret = 0;
-    printf(" Aborted by signal Interrupt...\n");    
+    printf(" Aborted by signal[%d] Interrupt...\n", sig);    
 
     {
         fsl_player_s8 *gts_log = getenv("GAT_LOG");
@@ -670,10 +689,10 @@ static void signal_handler(int sig)
         }
     }
     
-    if(g_pplayer != NULL)
-        player_exit(g_pplayer);
-    
-    exit(ret);
+    if(g_pplayer != NULL){
+        gbexit_main = FSL_PLAYER_TRUE;
+        g_pplayer->klass->send_message_exit(g_pplayer);
+        }
 }
 
 int main(int argc,char *argv[])
@@ -690,12 +709,11 @@ int main(int argc,char *argv[])
     fsl_player_s32 ret;
     fsl_player_s32 volume = 1;
 
-    signal(SIGINT, signal_handler);
-    signal(SIGTERM, signal_handler);
-    signal(SIGABRT, signal_handler);
-    signal(SIGILL,  signal_handler);
-    signal(SIGFPE,  signal_handler);
-    signal(SIGSEGV, signal_handler);
+    struct sigaction act;
+    act.sa_handler = signal_handler;
+    sigemptyset(&act.sa_mask);
+    act.sa_flags = 0;
+    sigaction(SIGINT, &act, NULL);
 
     if( argc < 2 ) {
         printf("Usage of command line player:\n");
@@ -763,12 +781,12 @@ int main(int argc,char *argv[])
     {
         sCommand[0] = ' ';
         errno = 0;
-        scanf("%s", sCommand);
-        //read(STDIN_FILENO, sCommand, 1);
-        if( EINTR == errno )
-        {
+          scanf("%s", sCommand);
+          //read(STDIN_FILENO, sCommand, 1);
+          if( EINTR == errno )
+          {
             //printf("Timed out: EINTR == %d", errno);
-        }
+          }
         switch( sCommand[0] )
         {
             case 'h': // display the operation Help.
@@ -776,9 +794,14 @@ int main(int argc,char *argv[])
                 break;
 
             case 'p': // Play.
-                //fsl_player_set_media_location(player_handle, filename2uri(uri_buffer,argv[1]), &drm_format);
-                pplayer->klass->set_media_location(pplayer, opt->current->name, &drm_format);
-                pplayer->klass->play(pplayer);
+                {
+                    fsl_player_state player_state = FSL_PLAYER_STATUS_STOPPED;
+                    pplayer->klass->get_property(pplayer, FSL_PLAYER_PROPERTY_PLAYER_STATE, (void*)(&player_state));
+                    if (player_state == FSL_PLAYER_STATUS_STOPPED) {
+                        pplayer->klass->set_media_location(pplayer, opt->current->name, &drm_format);
+                        pplayer->klass->play(pplayer);
+                    }
+                }
                 break;
 
             case 's': // Stop.
@@ -818,10 +841,19 @@ int main(int argc,char *argv[])
                 fsl_player_u32 seek_portion = 0;
                 fsl_player_u32 seek_mode = 0;
                 fsl_player_u32 flags = 0;
+                fsl_player_bool seekable = 0;
+                gbdisplay = FSL_PLAYER_FALSE;
+                pplayer->klass->get_property(pplayer, FSL_PLAYER_PROPERTY_SEEKABLE, (void*)(&seekable));
+                if(!seekable){
+                    printf("file is not seekable!\n");
+                    gbdisplay = FSL_PLAYER_TRUE;
+                    kb_set_raw_term(STDIN_FILENO);
+                    break;
+                }
                 pplayer->klass->get_property(pplayer, FSL_PLAYER_PROPERTY_DURATION, (void*)(&duration_ns));
                 duration_sec = duration_ns / 1000000000;
                 kb_restore_term(STDIN_FILENO);
-                gbdisplay = FSL_PLAYER_FALSE;
+
                 PRINT("Select seek mode[Fast seek:0,Accurate seek:1]:");
                 scanf("%s",sCommand);
                 seek_mode = atoi(sCommand);
@@ -933,6 +965,8 @@ int main(int argc,char *argv[])
                 #if 1
                 fsl_player_s32 audio_track_no = 0;
                 fsl_player_s32 total_audio_no = 0;
+                fsl_player_u64 elapsed=0;
+                fsl_player_u32 flags = 0;
                 pplayer->klass->get_property(pplayer, FSL_PLAYER_PROPERTY_TOTAL_AUDIO_NO, (void*)(&total_audio_no));
                 PRINT("input audio track number[0,%d]:",total_audio_no-1);
                 kb_restore_term(STDIN_FILENO);
@@ -946,6 +980,8 @@ int main(int argc,char *argv[])
                 {
                     pplayer->klass->select_audio_track(pplayer, audio_track_no);
                 }
+                pplayer->klass->get_property(pplayer, FSL_PLAYER_PROPERTY_ELAPSED, (void*)(&elapsed));
+                pplayer->klass->seek(pplayer, (fsl_player_u32)(elapsed/1000), flags);
                 gbdisplay = FSL_PLAYER_TRUE;
                 kb_set_raw_term(STDIN_FILENO);
                 #endif
@@ -1021,7 +1057,7 @@ int main(int argc,char *argv[])
                 fsl_player_s8 sCommand_y[128];
                 fsl_player_s8 sCommand_width[128];
                 fsl_player_s8 sCommand_height[128];
-                PRINT("Input [x,y,width,height]:");
+                PRINT("Input [x y width height]:");
                 kb_restore_term(STDIN_FILENO);
                 gbdisplay = FSL_PLAYER_FALSE;
                 scanf("%s %s %s %s",sCommand_x,sCommand_y,sCommand_width,sCommand_height);
@@ -1041,7 +1077,36 @@ int main(int argc,char *argv[])
                 break;
             #endif
             }
-
+            case 'k': // Set video input crop. 
+            {
+                fsl_player_video_crop sVideoCrop;
+                fsl_player_s8 s8Left[128];
+                fsl_player_s8 s8Right[128];
+                fsl_player_s8 s8Top[128];
+                fsl_player_s8 s8Bottom[128];
+                pplayer->klass->get_property(pplayer, FSL_PLAYER_PROPERTY_VIDEO_CROP, \
+                        (void*)(&sVideoCrop));
+                PRINT("Current [left: %d,ritht: %d,top: %d,bottom: %d]\n", \
+                        sVideoCrop.left, sVideoCrop.right, sVideoCrop.top, sVideoCrop.bottom);
+                PRINT("Input [left,ritht,top,bottom]:");
+                kb_restore_term(STDIN_FILENO);
+                gbdisplay = FSL_PLAYER_FALSE;
+                scanf("%s %s %s %s",s8Left,s8Right,s8Top,s8Bottom);
+                gbdisplay = FSL_PLAYER_TRUE;
+                kb_set_raw_term(STDIN_FILENO);
+                sVideoCrop.left = atoi(s8Left);
+                sVideoCrop.right = atoi(s8Right);
+                sVideoCrop.top = atoi(s8Top);
+                sVideoCrop.bottom = atoi(s8Bottom);
+                if( sVideoCrop.left < 0 || sVideoCrop.right < 0
+                    || sVideoCrop.top < 0 || sVideoCrop.bottom < 0 )
+                {
+                    printf("Invalid video crop parameters!\n");
+                    break;
+                }
+                pplayer->klass->video_crop(pplayer, sVideoCrop);
+                break;
+            }
             case 't': // Rotate 90 degree every time
             {
                 fsl_player_rotation rotate_value;
@@ -1086,15 +1151,15 @@ int main(int argc,char *argv[])
                 //pplayer->klass->stop(pplayer);
                 //pplayer->klass->exit_message_loop(pplayer); // flush all messages left in the message queue.
                 //pplayer->klass->send_message_exit(pplayer); // send a exit message.
-                //gbexit_main = FSL_PLAYER_TRUE;
+                gbexit_main = FSL_PLAYER_TRUE;
+                //player_exit(pplayer);
                 pplayer->klass->send_message_exit(pplayer);
-                player_exit(pplayer);
                 break;
             }
 
-            case '*': // Sleep 5 seconds
+            case '*': // Sleep 1 seconds
             {
-                FSL_PLAYER_SLEEP(5000);
+                FSL_PLAYER_SLEEP(1000);
                 break;
             }
 
@@ -1102,6 +1167,30 @@ int main(int argc,char *argv[])
             {
                 FSL_PLAYER_SLEEP(10000);
                 break;
+            }
+
+            case '$': // Check if seek successfully
+            {
+              fsl_player_u64 elapsed1, elapsed2;
+              elapsed1 = elapsed2 = 0;
+              pplayer->klass->get_property(pplayer, FSL_PLAYER_PROPERTY_ELAPSED, (void*)(&elapsed1));
+              FSL_PLAYER_SLEEP(1000);
+              pplayer->klass->get_property(pplayer, FSL_PLAYER_PROPERTY_ELAPSED, (void*)(&elapsed2));
+              if (elapsed2 == elapsed1)
+                g_print ("seek failed.\n");
+              break;
+            }
+
+            case '@': // Check if pause successfully
+            {
+              fsl_player_u64 elapsed1, elapsed2;
+              elapsed1 = elapsed2 = 0;
+              pplayer->klass->get_property(pplayer, FSL_PLAYER_PROPERTY_ELAPSED, (void*)(&elapsed1));
+              FSL_PLAYER_SLEEP(1000);
+              pplayer->klass->get_property(pplayer, FSL_PLAYER_PROPERTY_ELAPSED, (void*)(&elapsed2));
+              if (elapsed2 != elapsed1)
+                g_print ("pause failed.\n");
+              break;
             }
 
             default:
@@ -1120,7 +1209,10 @@ int main(int argc,char *argv[])
     fsl_player_deinit(player_handle);
 
 bail:
-    destroyPlayList(opt->pl);
+    if (opt->pl){
+        destroyPlayList(opt->pl);
+        opt->pl=NULL;
+    }
 
     return 0;
 }

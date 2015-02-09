@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011-2012, Freescale Semiconductor, Inc. 
+* Copyright (c) 2011-2013, Freescale Semiconductor, Inc.
  */
 
 /*
@@ -210,6 +210,18 @@ enum
 
 
 /*********************************************************************
+ * file flags:
+ * return flags of GetFlag() in FslFileStream
+ * Return value for some cases:
+ *   0 local playback.(default)
+ *   1 illegal
+ *   2 http streaming, which source is seekable, but seek may affect the fluency of playback.
+ *   3 live streaming such as rtp or udp streaming.
+ ********************************************************************/
+#define FILE_FLAG_NON_SEEKABLE   0X01
+//file source should be read in sequence. You should not read from random position even if the file is seekable
+#define FILE_FLAG_READ_IN_SEQUENCE   0X02
+/*********************************************************************
  * User data ID
  * Some File level metadata
 *********************************************************************/
@@ -252,6 +264,7 @@ typedef enum FSL_PARSER_USER_DATA_TYPE
 
     USER_DATA_AUD_ENC_DELAY,   /* audio encoding delay */
     USER_DATA_AUD_ENC_PADDING, /* audio encoding padding */
+    USER_DATA_DISCNUMBER,      /* disc number */
 
     USER_DATA_MAX
 } UserDataID;
@@ -394,8 +407,8 @@ typedef struct _FslFileStream
     int64  	(*Tell)(FslFileHandle handle, void * context); /* Tell the current position from start of the stream */
     int64 	(*Size)(FslFileHandle handle, void * context); /* Get the size of the entire stream */
     int64   (*CheckAvailableBytes)(FslFileHandle handle, int64 bytesRequested, void * context); /* How many bytes cached but not read yet */
-
-    void * reserved[2];
+    uint32  (*GetFlag)(FslFileHandle handle, void * context);
+    void * reserved[1];
 
 } FslFileStream;
 

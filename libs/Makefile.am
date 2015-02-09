@@ -37,7 +37,7 @@ endif
 
 libgstfsl_@GST_MAJORMINOR@_la_CFLAGS  = $(GST_BASE_CFLAGS) $(IPU_CFLAGS) -I../inc/common
 libgstfsl_@GST_MAJORMINOR@_la_LDFLAGS = -version-info @GSTMXLIBS_VERSION@
-libgstfsl_@GST_MAJORMINOR@_la_LIBADD = $(GST_BASE_LIBS) -lgstvideo-@GST_MAJORMINOR@ -lgstinterfaces-$(GST_MAJORMINOR) $(IPU_LIBS)
+libgstfsl_@GST_MAJORMINOR@_la_LIBADD = $(GST_BASE_LIBS) -lgstvideo-@GST_MAJORMINOR@ -lgstinterfaces-$(GST_MAJORMINOR) $(IPU_LIBS) $(RT_LIBS)
 
 libgstfsl_@GST_MAJORMINOR@includedir = $(includedir)/gstreamer-@GST_MAJORMINOR@/gst/imx-mm
 libgstfsl_@GST_MAJORMINOR@include_HEADERS = \
@@ -49,5 +49,5 @@ libgstfsl_@GST_MAJORMINOR@include_HEADERS = \
     vss/mfw_gst_vss_common.h    \
     vss/mfw_gst_video_surface.h
 
-data_DATA = vss/vssconfig vss/vssconfig.dvi_tv vss/vssconfig.dvi_wvga
+data_DATA = vss/vssconfig vss/vssconfig.dual.lvds_hdmi vss/vssconfig.triple.2lvds_hdmi
 EXTRA_DIST = $(data_DATA)

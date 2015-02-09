@@ -55,13 +55,14 @@ plugin_init (GstPlugin * plugin)
   entry = entries = beep_get_core_entry ();
 
   while (entry) {
-    gchar *modulename =
+    if(beepDLAvialable(entry)) {
+      gchar *modulename =
         g_strdup_printf (ELEMENT_MODULE_NAME0 ".%s", entry->name);
-    gboolean ret = gst_element_register (plugin, modulename, entry->rank,
-        gst_beepdec_subelement_get_type (entry));
+      gboolean ret = gst_element_register (plugin, modulename, entry->rank,
+          gst_beepdec_subelement_get_type (entry));
 
-    g_free (modulename);
-
+      g_free (modulename);
+    }
     entry = entry->next;
   }
 

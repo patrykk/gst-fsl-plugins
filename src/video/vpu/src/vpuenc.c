@@ -81,7 +81,7 @@
 #define Align(ptr,align)	((align) ? ((((guint32)(ptr))+(align)-1)/(align)*(align)) : ((guint32)(ptr)))
 
 #define VPUENC_TS_BUFFER_LENGTH_DEFAULT (1024)
-
+#define VPUENC_DEFAULT_BITRARE_KBPS(w,h,fr) ((w)*(h)*3/2*(fr)*8/80/1000)
 
 #define ATTACH_MEM2VPUDEC(vpuenc, desc)\
  do {\
@@ -96,6 +96,7 @@ enum
   PROP_SEQHEADER_METHOD,
   PROP_TIMESTAMP_METHOD,
 
+  PROP_CBR,
   PROP_BITRATE,
   PROP_GOPSIZE,
   PROP_QUANT,
@@ -129,13 +130,15 @@ static GstsutilsOptionEntry g_vpuenc_option_table[] = {
       G_STRUCT_OFFSET (VpuEncOption, timestamp_method), "0", "0", "1"},
 
   /* encode settings */
-  {PROP_BITRATE, "bitrate", "bit rate", "bit rate in bps", G_TYPE_INT64,
+  {PROP_CBR, "cbr", "cbr", "constant bitrate", G_TYPE_BOOLEAN,
+      G_STRUCT_OFFSET (VpuEncOption, cbr), "true"},
+  {PROP_BITRATE, "bitrate", "bit rate", "set bit rate in bps, valid only when cbr is true, 0: auto", G_TYPE_INT64,
       G_STRUCT_OFFSET (VpuEncOption, bitrate), "0", "0", G_MAXINT_STR},
   {PROP_GOPSIZE, "gopsize", "gop size", "set number of frame in a gop",
         G_TYPE_INT, G_STRUCT_OFFSET (VpuEncOption, gopsize), "15", "1",
       G_MAXINT_STR},
-  {PROP_QUANT, "quant", "quant", "set quant value",
-        G_TYPE_INT, G_STRUCT_OFFSET (VpuEncOption, quant), "10", "0",
+  {PROP_QUANT, "quant", "quant", "set quant value, valid only when cbr is false: H.264(0-51), Mpeg4/H.263(1-31), -1:auto", 
+        G_TYPE_INT, G_STRUCT_OFFSET (VpuEncOption, quant), "-1", "-1",
       "51"},
   {PROP_FRAMERATE_NU, "framerate-nu", "framerate numerator",
         "set framerate numerator", G_TYPE_INT,
@@ -160,7 +163,7 @@ typedef struct
 } VPUMapper;
 
 static GEnumValue vpu_mappers[] = {
-  {VPU_V_MPEG4, "video/mpeg, mpegversion=(int)4",
+  {VPU_V_MPEG4, "video/mpeg, mpegversion=(int)4, systemstream=(boolean)false",
       "mpeg4"},
   {VPU_V_H263, "video/x-h263", "h263"},
   {VPU_V_AVC, "video/x-h264", "avc"},
@@ -432,6 +435,8 @@ vpuenc_core_init (GstVpuEnc * vpuenc)
   memset (&vpuenc->vpu_stat, 0, sizeof (VpuEncStat));
 
   vpuenc->force_copy = FALSE;
+  vpuenc->forcekeyframe = FALSE;
+  vpuenc->gop_frm_cnt=0;
 
   CORE_API (VPU_EncGetVersionInfo, goto fail, core_ret, &version);
   CORE_API (VPU_EncGetWrapperVersionInfo, goto fail, core_ret, &w_version);
@@ -498,6 +503,40 @@ vpuenc_core_deinit (GstVpuEnc * vpuenc)
 
 }
 
+static void vpuenc_detect_avcc(GstVpuEnc * vpuenc)
+{
+    gboolean isAvcc=FALSE;
+    if(vpuenc->options.codec== VPU_V_AVC){
+        GstCaps *peer_caps;
+        GstStructure *s;
+        gchar *stream_format;
+        peer_caps = gst_pad_peer_get_caps_reffed (vpuenc->srcpad);
+        if (peer_caps) {
+           gint i, num;
+           num=gst_caps_get_size (peer_caps);
+           GST_LOG("peer caps num: %d ",num);
+           for (i = 0; i < num; i++) {
+               GstStructure *s = gst_caps_get_structure (peer_caps, i);
+               if (gst_structure_has_name (s, "video/x-h264") &&
+                    gst_structure_has_field (s, "stream-format")) {
+                   stream_format = gst_structure_get_string (s, "stream-format");
+                   GST_LOG("peer caps:  x-h264/stream-format= %s !",stream_format);
+                   if(stream_format){
+                       if(!strcmp (stream_format, "avc")){
+                           isAvcc=TRUE;
+                           break;
+                       }
+                   }
+               }
+            }
+            gst_caps_unref (peer_caps);
+        }
+        else{
+            GST_LOG("no peer caps !!");
+        }
+    }
+    vpuenc->context.openparam.nIsAvcc=(TRUE==isAvcc)?1:0;
+}
 
 static void
 _do_init (GType object_type)
@@ -734,8 +773,8 @@ gst_vpuenc_core_create_and_register_frames (GstVpuEnc * vpuenc, gint num)
     goto fail;
   }
 
-  if (gst_vpuenc_check_and_set_input_spec (vpuenc, ispec->width,
-          ispec->height) == FALSE) {
+  if (gst_vpuenc_check_and_set_input_spec (vpuenc, Align(ispec->width,16),
+          Align(ispec->height,16)) == FALSE) {
     goto fail;
   }
 
@@ -771,7 +810,7 @@ gst_vpuenc_core_create_and_register_frames (GstVpuEnc * vpuenc, gint num)
       ATTACH_MEM2VPUDEC (vpuenc, frameblock);
       vpucore_frame = &vpuframebuffers[vpuenc->frame_num];
 
-      vpucore_frame->nStrideY = ispec->width;
+      vpucore_frame->nStrideY = Align(ispec->width,16);
       vpucore_frame->nStrideC = vpucore_frame->nStrideY / 2;
 
       vpucore_frame->pbufY = frame_paddr;
@@ -797,7 +836,7 @@ gst_vpuenc_core_create_and_register_frames (GstVpuEnc * vpuenc, gint num)
   }
   VpuEncRetCode core_ret;
   CORE_API (VPU_EncRegisterFrameBuffer, goto fail, core_ret,
-      vpuenc->context.handle, vpuframebuffers, num, ispec->width);
+      vpuenc->context.handle, vpuframebuffers, num, ispec->width/*needn't align*/);
   ret = TRUE;
 
 
@@ -1032,10 +1071,16 @@ gst_vpuenc_push_buffer (GstVpuEnc * vpuenc, GstBuffer * buffer)
           "framerate", GST_TYPE_FRACTION, vpuenc->options.framerate_nu,
           vpuenc->options.framerate_de, "framed", G_TYPE_BOOLEAN, TRUE, NULL);
 
+      if(vpuenc->context.openparam.nIsAvcc){ //support third-party muxer: includes mp4mux/flvmux/matroskamux
+          GST_LOG("set stream-format: avc ");
+          gst_caps_set_simple (caps, "stream-format", G_TYPE_STRING, "avc",
+                        "alignment", G_TYPE_STRING, "au", NULL);			
+      }
+
       if (vpuenc->codec_data) {
         gboolean sendwithbuffer = FALSE;
         if (vpuenc->options.seqheader_method == 0) {
-          if (vpuenc->context.params.eFormat == VPU_V_AVC) {
+          if ((vpuenc->context.params.eFormat == VPU_V_AVC)&&(FALSE==vpuenc->context.openparam.nIsAvcc)) {
             sendwithbuffer = TRUE;
           }
         } else if ((vpuenc->options.seqheader_method == 2)
@@ -1159,11 +1204,38 @@ gst_vpuenc_chain (GstPad * pad, GstBuffer * buffer)
     }
 
     vpuenc->context.openparam.eFormat = vpuenc->options.codec;
-    vpuenc->context.openparam.nBitRate = vpuenc->options.bitrate / 1000;
     vpuenc->context.openparam.nGOPSize = vpuenc->options.gopsize;
 
     vpuenc->context.openparam.nFrameRate =
         vpuenc->options.framerate_nu / vpuenc->options.framerate_de;
+
+    /*assign bitrate*/
+    if(vpuenc->options.cbr){
+        if(0==vpuenc->options.bitrate){
+            vpuenc->context.openparam.nBitRate=VPUENC_DEFAULT_BITRARE_KBPS(vpuenc->context.openparam.nPicWidth,
+                          vpuenc->context.openparam.nPicHeight,vpuenc->context.openparam.nFrameRate);
+        }
+        else{
+            vpuenc->context.openparam.nBitRate = (int)vpuenc->options.bitrate/1000;
+        }
+    }
+    else{
+        vpuenc->context.openparam.nBitRate=0; //ignore bitrate
+    }
+    GST_INFO("cbr: %d, bitrate: %lld(bps) , bitrate set to vpu: %d(kbps) \r\n",vpuenc->options.cbr,vpuenc->options.bitrate,vpuenc->context.openparam.nBitRate);
+
+    /*assign qp value*/
+    if(-1==vpuenc->options.quant){
+        if(VPU_V_AVC==vpuenc->options.codec){
+            vpuenc->options.quant=35;
+        }
+        else{
+            vpuenc->options.quant=15;
+        }
+    }
+    GST_INFO("qp value: %d ",vpuenc->options.quant);
+
+    vpuenc_detect_avcc(vpuenc);
 
     CORE_API (VPU_EncOpenSimp, goto bail, core_ret, &vpuenc->context.handle,
         &vpuenc->context.meminfo, &vpuenc->context.openparam);
@@ -1228,6 +1300,22 @@ gst_vpuenc_chain (GstPad * pad, GstBuffer * buffer)
     gst_vpuenc_assign_frame (&vpuenc->ispec, &frame, paddr, vaddr);
     vpuenc->context.params.pInFrame = &frame;
 
+    if(vpuenc->forcekeyframe){
+      GST_INFO("one key frame is forced .");
+      gst_pad_push_event (vpuenc->srcpad,
+          gst_event_new_custom (GST_EVENT_CUSTOM_DOWNSTREAM, 
+            gst_structure_new ("GstForceKeyUnit","timestamp", G_TYPE_UINT64, TSManagerQuery(vpuenc->tsm),NULL)));
+
+      vpuenc->context.params.nForceIPicture= 1;
+      vpuenc->gop_frm_cnt=0;
+      GST_OBJECT_LOCK (vpuenc);
+      vpuenc->forcekeyframe = FALSE;
+      GST_OBJECT_UNLOCK (vpuenc);
+    }
+    else{
+      vpuenc->context.params.nForceIPicture=0;
+    }
+
     do {
       vpuenc->context.params.eOutRetCode = 0;
       vpuenc->context.params.nInPhyOutput = (unsigned int) vpuenc->obuf->paddr;
@@ -1266,10 +1354,11 @@ gst_vpuenc_chain (GstPad * pad, GstBuffer * buffer)
         /* FIX ME : currently vpu wrapper still need copy since 6q does not dynamic output buffer */
         memcpy (GST_BUFFER_DATA (gstbuf), (void *) (vpuenc->obuf->vaddr),
             vpuenc->context.params.nOutOutputSize);
-        if (vpuenc->vpu_stat.out_cnt % vpuenc->options.gopsize) {
+        if ( vpuenc->gop_frm_cnt % vpuenc->options.gopsize) {
             GST_BUFFER_FLAG_SET (gstbuf, GST_BUFFER_FLAG_DELTA_UNIT);
         }
         vpuenc->vpu_stat.out_cnt++;
+        vpuenc->gop_frm_cnt++;
         ret = gst_vpuenc_push_buffer (vpuenc, gstbuf);
 
       } else {
@@ -1343,7 +1432,18 @@ gst_vpuenc_src_event (GstPad * pad, GstEvent * event)
   GstVpuEnc *vpuenc;
   vpuenc = GST_VPUENC (GST_PAD_PARENT (pad));
   switch (GST_EVENT_TYPE (event)) {
-
+    case GST_EVENT_CUSTOM_UPSTREAM:{
+      const GstStructure *s;
+      GST_INFO ("Got GST_EVENT_CUSTOM_UPSTREAM src event.");
+      s = gst_event_get_structure (event);
+      if (gst_structure_has_name (s, "GstForceKeyUnit")) {
+        GST_OBJECT_LOCK (vpuenc);
+        vpuenc->forcekeyframe= TRUE;
+        GST_OBJECT_UNLOCK (vpuenc);
+        gst_event_unref (event);
+      }
+      break;
+    }
     default:
       ret = gst_pad_event_default (pad, event);
       break;
@@ -1404,6 +1504,18 @@ gst_vpuenc_sink_event (GstPad * pad, GstEvent * event)
     {
       GST_INFO ("EOS received");
       ret = gst_pad_event_default (pad, event);
+      break;
+    }
+    case GST_EVENT_CUSTOM_DOWNSTREAM:{
+      const GstStructure *s;
+      GST_INFO ("Got GST_EVENT_CUSTOM_DOWNSTREAM sink event.");
+      s = gst_event_get_structure (event);
+      if (gst_structure_has_name (s, "GstForceKeyUnit")) {
+        GST_OBJECT_LOCK (vpuenc);
+        vpuenc->forcekeyframe= TRUE;
+        GST_OBJECT_UNLOCK (vpuenc);
+      }
+      gst_pad_event_default (pad, event);
       break;
     }
     default:

@@ -70,6 +70,7 @@ GstCaps *beep_core_get_caps ();
 BeepCoreInterface *beep_core_create_interface_from_caps (GstCaps * caps);
 void beep_core_destroy_interface (BeepCoreInterface * inf);
 GstCaps *beep_core_get_cap (BeepCoreDlEntry * entry);
+gboolean beepDLAvialable (BeepCoreDlEntry *entry);
 
 
 #endif /* __BEEPREGISTRY_H__ */

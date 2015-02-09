@@ -1,5 +1,6 @@
+
 /*
- * Copyright (c) 2009-2012, Freescale Semiconductor, Inc. All rights reserved.
+ * Copyright (c) 2009-2012, 2014 Freescale Semiconductor, Inc. All rights reserved.
  *
  */
 
@@ -631,23 +632,20 @@ mfw_gst_amrdec_chain(GstPad *pad, GstBuffer *buf)
         }
         data = (guint8 *) gst_adapter_peek (priv->adapter, 1);
         rv = get_in_out_frame_size(dec, data, &in_size, &out_size);
+        if (!rv) {
+            gst_adapter_clear(priv->adapter);
+            GST_ERROR("AMR frame %lld damaged\n", priv->frame_count);
+            continue;
+        }
         GST_DEBUG("got in size %d, out size %d\n", in_size, out_size);
         if(in_size <= 0) {
             GST_ERROR("AMR frame %lld mode not supported, maybe data misaligned\n", priv->frame_count);
             gst_adapter_clear(priv->adapter);
-            ret = GST_FLOW_ERROR;
             break;
         }
         
         if(gst_adapter_available (priv->adapter) < in_size)
             break;
-        if (!rv) {
-            gst_adapter_flush(priv->adapter, in_size);
-            GST_ERROR("AMR frame %lld damaged\n", priv->frame_count);
-            priv->frame_count++;
-            ret = GST_FLOW_ERROR;
-            continue;
-        }
         /* the library seems to write into the source data, hence
          * the copy. */
         data = gst_adapter_take (priv->adapter, in_size);

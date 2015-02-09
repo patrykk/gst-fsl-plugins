@@ -417,3 +417,23 @@ beepregistry_c_destructor ()
 
   MM_DEINIT_DBG_MEM ();
 }
+
+gboolean
+beepDLAvialable (BeepCoreDlEntry *entry)
+{
+  void *dlhandle = NULL;
+  int i = 0;
+  gboolean ret = FALSE;
+
+  while ((dlhandle == NULL)
+      && (entry->dl_name = beep_strip_blank (entry->dl_names[i++]))) {
+    dlhandle = dlopen (entry->dl_name, RTLD_LAZY);
+  };
+
+  if (dlhandle) {
+    dlclose (dlhandle);
+    ret = TRUE;
+  }
+
+  return ret;
+}

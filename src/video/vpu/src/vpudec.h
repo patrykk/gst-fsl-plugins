@@ -15,7 +15,7 @@
 */
 
 /*
- * Copyright (c) 2011-2012, Freescale Semiconductor, Inc. All rights reserved. 
+ * Copyright (c) 2011-2014, Freescale Semiconductor, Inc. All rights reserved. 
  *
  */
 
@@ -126,6 +126,7 @@ typedef struct
 
   gboolean experimental_tsm;
   gboolean profiling;
+  gboolean dis_reorder;
 } VpuDecOption;
 
 typedef struct

@@ -255,6 +255,10 @@ TSManagerGetLastTimeStamp (TSMRecivedCtl * rctl, int size, int use)
   TSMReceivedEntry *e;
   while ((size > 0) && (e = rctl->head)) {
     ts = ((e->used) ? (TSM_TIMESTAMP_NONE) : (e->ts));
+
+    TSM_VERBOSE ("ts get: %" TSM_TIME_FORMAT "\n",
+        TSM_TIME_ARGS (ts));
+
     if (use)
       e->used = 1;
     if (size >= e->size) {
@@ -262,9 +266,13 @@ TSManagerGetLastTimeStamp (TSMRecivedCtl * rctl, int size, int use)
       if (rctl->head == NULL) {
         rctl->tail = NULL;
       } else {
+#if 0
+        //removed for rtp/rtsp streaming fix, 
+        //this will make same timestamp buffers output timestamp to -1.
         if (rctl->head->subentry) {
           rctl->head->used = e->used;
         }
+#endif
       }
       size -= e->size;
       rctl->cnt--;
@@ -372,6 +380,8 @@ TSManagerValid2 (void *handle, int size, void *key)
   if (tsm) {
     TSM_TIMESTAMP ts;
     ts = TSManagerGetLastTimeStamp (&tsm->rctl, size, 1);
+    TSM_VERBOSE ("TSManagerGetLastTimeStamp: %" TSM_TIME_FORMAT "\n",
+        TSM_TIME_ARGS (ts));
     _TSManagerReceive (tsm, ts, key);
   }
 }

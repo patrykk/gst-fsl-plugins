@@ -339,13 +339,13 @@ mfw_gst_xv4l2_event_thread (MFW_GST_V4LSINK_INFO_T *v4l_info)
 #ifdef _MX6
                 if ((param & PARAM_SET_V4L) == PARAM_SET_V4L)
                 {
-                    GST_INFO ("Refresh geometry and set crop.");
                     mfw_gst_xv4l2_refresh_geometry (v4l_info);
                     mfw_gst_v4l2_set_crop(v4l_info, v4l_info->disp_width, v4l_info->disp_height);
                 }
 #endif
                 v4l_info->setpara |= param;
                 v4l_info->setXid = FALSE;
+                v4l_info->drop_frame = FALSE;
                 g_mutex_unlock(v4l_info->flow_lock);
                 GST_DEBUG("%s:set param to %x.",__FUNCTION__, v4l_info->setpara);
                 g_mutex_lock(v4l_info->flow_lock);

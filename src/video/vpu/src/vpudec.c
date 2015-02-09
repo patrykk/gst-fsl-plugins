@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2012, Freescale Semiconductor, Inc. All rights reserved.
+ * Copyright (c) 2011-2014, Freescale Semiconductor, Inc. All rights reserved.
  */
 
 /*
@@ -39,6 +39,9 @@
 
 /* FIX ME */
 //#define MX6_CLEARDISPLAY_WORKAROUND
+
+#define GST_TAG_VPUDEC_WIDTH "image_width"
+#define GST_TAG_VPUDEC_HEIGHT "image_height"
 
 #define DEFAULT_FRAME_BUFFER_ALIGNMENT_H 16
 #define DEFAULT_FRAME_BUFFER_ALIGNMENT_V 16
@@ -97,6 +100,7 @@
 
 #define SKIP_NUM_MASK (0xff)
 
+#define SLEEP_US_TIME_NO_FRAME (5000) 
 typedef struct
 {
   void *paddr;
@@ -127,6 +131,7 @@ enum
   PROP_DROP_LEVEL_MASK,
   PROP_EXPERIMENTAL_TSM,
   PROP_PROFILING,
+  PROP_DIS_REORDER,
 };
 
 static void gst_vpudec_finalize (GObject * object);
@@ -195,6 +200,8 @@ static GstsutilsOptionEntry g_vpudec_option_table[] = {
       "true"},
   {PROP_PROFILING, "profile", "profile", "enable profile on vpudec",
       G_TYPE_BOOLEAN, G_STRUCT_OFFSET (VpuDecOption, profiling), "false"},
+  {PROP_DIS_REORDER, "dis-reorder", "disable reorder", "disable reorder output",
+      G_TYPE_BOOLEAN, G_STRUCT_OFFSET (VpuDecOption, dis_reorder), "false"},
   /* terminator */
   {-1, NULL, NULL, NULL, 0, 0, NULL},
 };
@@ -1020,6 +1027,7 @@ gst_vpudec_set_downstream_pad (GstVpuDec * vpudec, gint num)
   guint pad_width, pad_height;
   VpuDecInitInfo *initinfo = &vpudec->context.initinfo;
   VpuOutPutSpec *ospec = &vpudec->ospec;
+  GstTagList *list = gst_tag_list_new ();
 
 
   GST_INFO
@@ -1027,6 +1035,13 @@ gst_vpudec_set_downstream_pad (GstVpuDec * vpudec, gint num)
       initinfo->nPicWidth, initinfo->nPicHeight, initinfo->PicCropRect.nLeft,
       initinfo->PicCropRect.nRight, initinfo->PicCropRect.nTop,
       initinfo->PicCropRect.nBottom, initinfo->nInterlace);
+
+  gst_tag_list_add (list, GST_TAG_MERGE_APPEND,
+      GST_TAG_VPUDEC_WIDTH, initinfo->PicCropRect.nRight - initinfo->PicCropRect.nLeft, NULL);
+  gst_tag_list_add (list, GST_TAG_MERGE_APPEND,
+      GST_TAG_VPUDEC_HEIGHT, initinfo->PicCropRect.nBottom - initinfo->PicCropRect.nTop, NULL);
+
+  gst_element_found_tags (GST_ELEMENT (vpudec), list);
 
   if (initinfo->nInterlace){
     ospec->height_align <<= 1;
@@ -1092,27 +1107,30 @@ fail:
 
 
 
-static void
+static int
 gst_vpudec_core_check_display_queue (GstVpuDec * vpudec)
 {
   int i;
+  int cleared_cnt=0;
   VpuDecFrame *frame;
   for (i = 0; i < vpudec->frame_num; i++) {
     if ((vpudec->frames[i].display_handle)      //){
-        && (vpudec->age != vpudec->frames[i].age)) {
+        /*&& (vpudec->age != vpudec->frames[i].age)*/) {
       if (gst_buffer_is_writable (vpudec->frames[i].gstbuf)) {
         VpuDecRetCode core_ret;
         CORE_API (VPU_DecOutFrameDisplayed,, core_ret, vpudec->context.handle,
             (vpudec->frames[i].display_handle));
         vpudec->frames[i].display_handle = NULL;
         vpudec->output_size--;
+        cleared_cnt++;
 #ifdef MX6_CLEARDISPLAY_WORKAROUND
-        return;
+        return cleared_cnt;
 #endif
       }
     } else {
     }
   }
+  return cleared_cnt;
 }
 
 
@@ -1275,7 +1293,12 @@ gst_vpudec_setcaps (GstPad * pad, GstCaps * caps)
       vpudec->context.openparam.nChromaInterleave = 0;
     }
 
-    vpudec->context.openparam.nReorderEnable = 1;
+    if(vpudec->options.dis_reorder){
+        vpudec->context.openparam.nReorderEnable = 0;
+    }
+    else{
+        vpudec->context.openparam.nReorderEnable = 1;
+    }
     vpudec->context.openparam.nEnableFileMode = 0;
 
     CORE_API (VPU_DecOpen, goto error, core_ret, &vpudec->context.handle,
@@ -1577,6 +1600,10 @@ gst_vpudec_chain (GstPad * pad, GstBuffer * buffer)
           ("Got no frame buffer message, return 0x%x, %d frames in displaying queue!!",
           core_buf_ret, vpudec->output_size);
       retrycnt++;
+      if(0==gst_vpudec_core_check_display_queue(vpudec)){
+         GST_LOG("no enough frame for vpu to decode, sleep: %d us ",SLEEP_US_TIME_NO_FRAME);
+         g_usleep (SLEEP_US_TIME_NO_FRAME);
+      }
     }
 
     if (core_buf_ret & VPU_DEC_SKIP) {
@@ -1688,6 +1715,11 @@ gst_vpudec_state_change (GstElement * element, GstStateChange transition)
       break;
     case GST_STATE_CHANGE_READY_TO_PAUSED:
     {
+      gst_tag_register (GST_TAG_VPUDEC_WIDTH, GST_TAG_FLAG_DECODED,
+          G_TYPE_UINT, "image width", "image width", NULL);
+      gst_tag_register (GST_TAG_VPUDEC_HEIGHT, GST_TAG_FLAG_DECODED,
+          G_TYPE_UINT, "image height", "image height", NULL);
+
       MM_INIT_DBG_MEM ("vpudec");
       if (!vpudec_core_init (vpudec)) {
         goto bail;
@@ -1855,6 +1887,9 @@ gst_vpudec_sink_event (GstPad * pad, GstEvent * event)
       int i;
       CORE_API (VPU_DecFlushAll,, core_ret, vpudec->context.handle);
 
+#if 0
+      //remove this code as this will cause a frame buffer be queued twice, then cause
+      //buffer be unref twice.
       for (i = 0; i < vpudec->frame_num; i++) {
         if (vpudec->frames[i].display_handle) {
           CORE_API (VPU_DecOutFrameDisplayed,, core_ret, vpudec->context.handle,
@@ -1862,6 +1897,7 @@ gst_vpudec_sink_event (GstPad * pad, GstEvent * event)
           vpudec->frames[i].display_handle = NULL;
         }
       };
+#endif
       vpudec->prerolling = TRUE;
       vpudec->output_size = 0;
       ret = gst_pad_event_default (pad, event);

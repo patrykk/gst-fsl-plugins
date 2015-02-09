@@ -89,6 +89,7 @@ G_BEGIN_DECLS
     gint32 ff_flag;		/* flag for fast forward */
     gint32 number_of_bytes;	/* bytes in one NAL unit */
     gint32 number_of_nal_units;	/* total number of NAL units in a chunk */
+    gint32 nal_startsize[MAX_NAL];	/* number of bytes of start code */
     gint32 nal_size[MAX_NAL];	/* number of bytes in a NAL unit */
     gfloat frame_rate;		/* frame rate */
     gint framerate_n;

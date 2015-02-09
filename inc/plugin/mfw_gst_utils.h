@@ -57,6 +57,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <sys/utsname.h>
+
 
 /* ANSI color print */
 #define COLOR_RED       31
@@ -118,6 +120,10 @@
 
 #define ROUNDUP8(data)\
     ((((data)+7)>>3)<<3)
+#define ROUNDDOWN8(data)\
+    (((data)>>3)<<3)
+#define ROUNDUP32(data)\
+    ((((data)+31)>>5)<<5)
 
 /* resource related debug defines */
 typedef enum
@@ -757,7 +763,7 @@ typedef enum
     ||((ccode)==CC_UNKN))
 
 static CHIP_CODE
-getChipCode (void)
+getChipCodeFromCpuinfo (void)
 {
   FILE *fp = NULL;
   char buf[100], *p, *rev;
@@ -829,6 +835,94 @@ getChipCode (void)
   }
 
   return cc;
+}
+
+typedef struct {
+  CHIP_CODE code;
+  char *name;
+} SOC_INFO;
+
+static SOC_INFO soc_info[] = {
+  {CC_MX23, "i.MX23"},
+  {CC_MX25, "i.MX25"},
+  {CC_MX27, "i.MX27"},
+  {CC_MX28, "i.MX28"},
+  {CC_MX31, "i.MX31"},
+  {CC_MX35, "i.MX35"},
+  {CC_MX37, "i.MX37"},
+  {CC_MX50, "i.MX50"},
+  {CC_MX51, "i.MX51"},
+  {CC_MX53, "i.MX53"},
+  {CC_MX6Q, "i.MX6DL"},
+  {CC_MX6Q, "i.MX6Q"},
+  {CC_MX60, "i.MX6SL"}
+};
+
+static CHIP_CODE
+getChipCodeFromSocid (void)
+{
+  FILE *fp = NULL;
+  char soc_name[100];
+  CHIP_CODE code = CC_UNKN;
+
+  fp = fopen("/sys/devices/soc0/soc_id", "r");
+  if (fp == NULL) {
+    g_print("open /sys/devices/soc0/soc_id failed.\n");
+    return  CC_UNKN;
+  }
+
+  if (fscanf(fp, "%s", soc_name) != 1) {
+    g_print("fscanf soc_id failed.\n");
+    fclose(fp);
+    return CC_UNKN;
+  }
+  fclose(fp);
+
+  //GST_INFO("SOC is %s\n", soc_name);
+
+  int num = sizeof(soc_info) / sizeof(SOC_INFO);
+  int i;
+  for(i=0; i<num; i++) {
+    if(!strcmp(soc_name, soc_info[i].name)) {
+      code = soc_info[i].code;
+      break;
+    }
+  }
+
+  return code;
+}
+
+
+#define KERN_VER(a, b, c) (((a) << 16) + ((b) << 8) + (c))
+
+static CHIP_CODE
+getChipCode (void)
+{
+  struct utsname sys_name;
+  int kv, kv_major, kv_minor, kv_rel;
+  char soc_name[255];
+  int rev_major, rev_minor;
+  int idx, num;
+
+  if (uname(&sys_name) < 0) {
+    g_print("get kernel version via uname failed.\n");
+    return CC_UNKN;
+  }
+
+  if (sscanf(sys_name.release, "%d.%d.%d", &kv_major, &kv_minor, &kv_rel) != 3) {
+    g_print("sscanf kernel version failed.\n");
+    return CC_UNKN;
+  }
+
+  kv = ((kv_major << 16) + (kv_minor << 8) + kv_rel);
+  //GST_INFO("kernel:%s, %d.%d.%d\n", sys_name.release, kv_major, kv_minor, kv_rel);
+
+  if (kv < KERN_VER(3, 10, 0))
+    return getChipCodeFromCpuinfo();
+  else
+    return getChipCodeFromSocid();
+
+  return CC_UNKN;
 }
 
 /*=============================================================================

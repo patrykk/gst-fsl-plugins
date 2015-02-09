@@ -98,6 +98,7 @@ typedef struct
 {
   gint seqheader_method;
   gint timestamp_method;
+  gboolean cbr;
   gint64 bitrate;
   gint gopsize;
   gint quant;
@@ -182,6 +183,9 @@ struct _GstVpuEnc
 
   GstBuffer *codec_data;
   VpuEncMem *frameblock;
+
+  gboolean forcekeyframe;
+  guint64 gop_frm_cnt;
 };
 
 

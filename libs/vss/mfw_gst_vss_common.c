@@ -95,7 +95,7 @@ void
 open_allocator_dll ()
 {
   char *errstr;
-  g_dlhandle = dlopen ("libgstfsl-0.10.so", RTLD_LAZY);
+  g_dlhandle = dlopen ("libgstfsl-0.10.so.0", RTLD_LAZY);
 
   if (!g_dlhandle) {
     printf ("Can not open dll, %s.\n", dlerror ());
@@ -748,6 +748,18 @@ int
 _closeDevice (VideoDevice * vd)
 {
   int fd = _getDevicefd (vd);
+
+  //ENGR00273680: need to disable local alpha when close
+  if (vd->setalpha) {
+    struct mxcfb_loc_alpha l_alpha;
+    l_alpha.enable = 0;
+    l_alpha.alpha_in_pixel = 0;
+    l_alpha.alpha_phy_addr0 = 0;
+    l_alpha.alpha_phy_addr1 = 0;
+
+    VS_IOCTL (fd, MXCFB_SET_LOC_ALPHA, done, &l_alpha);
+  }
+
   //if (vd->mode_num){
   VS_IOCTL (fd, FBIOPUT_VSCREENINFO, done, &vd->fbvar);
   //}

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005-2012, Freescale Semiconductor, Inc. 
+ * Copyright (c) 2005-2013, Freescale Semiconductor, Inc. 
  *
  */
 
@@ -2438,8 +2438,16 @@ mfw_gst_aacdec_chain (GstPad * pad, GstBuffer * buf)
   if (aacdec_info->profile_not_support) {
     GstFlowReturn ret = GST_FLOW_OK;
     GST_ERROR ("AAC Profile not support");
-    ret = gst_pad_push_event (aacdec_info->srcpad, gst_event_new_eos ());
+    aacdec_info->not_support_cnt++;
+    gst_adapter_flush (aacdec_info->pAdapter, inbuffsize);
+    if (aacdec_info->not_support_cnt<=50) {
+      aacdec_info->profile_not_support = 0;
+    } else {
+      ret = gst_pad_push_event (aacdec_info->srcpad, gst_event_new_eos ());
+    }
     return ret;
+  } else {
+    aacdec_info->not_support_cnt = 0;
   }
 
   if (aacdec_info->flow_error) {
@@ -2511,6 +2519,7 @@ mfw_gst_aacdec_change_state (GstElement * element, GstStateChange transition)
       aacdec_info->inbuffer2 = NULL;
       aacdec_info->corrupt_bs = FALSE;
       aacdec_info->error_cnt = 0;
+      aacdec_info->not_support_cnt = 0;
       aacdec_info->profile_not_support = FALSE;
 
       memset (&aacdec_info->app_params, 0, sizeof (AACD_App_params *));

@@ -420,6 +420,7 @@ mfw_gst_mp3enc_sink_event (GstPad * pad, GstEvent * event)
   GstBuffer *outbuf = NULL;
   guint8 *outdata = NULL;
   mp3enc = MFW_GST_MP3ENC (GST_OBJECT_PARENT (pad));
+  GstClockTime timestamp;
 
   switch (GST_EVENT_TYPE (event))
     {
@@ -430,6 +431,7 @@ mfw_gst_mp3enc_sink_event (GstPad * pad, GstEvent * event)
 
       MP3ENC_TRY_ENC(gret,mp3enc,mfw_gst_mp3enc_encode_frame);
 
+      timestamp = gst_adapter_prev_timestamp(mp3enc->adapter, NULL);
       gst_adapter_clear(mp3enc->adapter);
 
     if (mp3enc->demo_mode == 2)
@@ -448,7 +450,7 @@ mfw_gst_mp3enc_sink_event (GstPad * pad, GstEvent * event)
 	outdata = GST_BUFFER_DATA (outbuf);
 
 	mp3e_flush_bitstream (&mp3enc->enc_config, outdata);
-	GST_BUFFER_TIMESTAMP (outbuf) = GST_CLOCK_TIME_NONE;
+	GST_BUFFER_TIMESTAMP (outbuf) = timestamp;
 	gst_pad_push (mp3enc->srcpad, outbuf);
 
 	gst_pad_push_event (mp3enc->srcpad, event);

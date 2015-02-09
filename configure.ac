@@ -3,10 +3,10 @@ AC_PREREQ(2.59)
 dnl initialize autoconf
 dnl releases only do -Wall, git and prerelease does -Werror too
 dnl use a three digit version number for releases, and four for git/prerelease
-AC_INIT(GStreamer i.MX Plug-ins, 3.0.7, http://www.freescale.com)
+AC_INIT(GStreamer i.MX Plug-ins, 3.0.11, http://www.freescale.com)
 
 dnl initialize automake
-AM_INIT_AUTOMAKE(gst-fsl-plugins, 3.0.7)
+AM_INIT_AUTOMAKE(gst-fsl-plugins, 3.0.11)
 
 AC_CONFIG_MACRO_DIR([m4])
 
@@ -98,11 +98,11 @@ dnl check target type
 if test "$PLATFORM" = "MX28" || test "$PLATFORM" = "MX233" || test "$PLATFORM" = "MX25" || test "$PLATFORM" = "MX27" || \
    test "$PLATFORM" = "MX31" || test "$PLATFORM" = "MX35" || test "$PLATFORM" = "MX37" \
    || test "$PLATFORM" = "MX51" || test "$PLATFORM" = "MX53" || test "$PLATFORM" = "MX50" || test "$PLATFORM" = "MX5X" \
-   || test "$PLATFORM" = "MX6" ;
+   || test "$PLATFORM" = "MX6" || test "$PLATFORM" = "MX6SL" ;
 then
   AC_MSG_NOTICE(build for $PLATFORM)
 else
-  AC_MSG_ERROR(No target platform specified! Use ./configure PLATFORM=(MX28/MX233/MX25/MX27/MX31/MX35/MX37/MX51/MX53/MX50/MX5X/MX6) to retry)
+  AC_MSG_ERROR(No target platform specified! Use ./configure PLATFORM=(MX28/MX233/MX25/MX27/MX31/MX35/MX37/MX51/MX53/MX50/MX5X/MX6/MX6SL) to retry)
 fi
 
 AC_SUBST(PLATFORM)
@@ -164,6 +164,9 @@ AC_SUBST(VPU_LIBS)
 
 AC_CHECK_HEADERS([linux/ipu.h], [HAVE_IPU_HEAD=yes], [HAVE_IPU_HEAD=no])
 if test "x$HAVE_IPU_HEAD" = "xno"; then
+AC_CHECK_HEADERS([ipu.h], [HAVE_IPU_HEAD=yes], [HAVE_IPU_HEAD=no])
+fi
+if test "x$HAVE_IPU_HEAD" = "xno"; then
     ipuhead=`find $CROSS_ROOT/usr/src/ -name ipu.h | grep "/linux/ipu.h" | head -n 1 | sed -e 's,/linux/ipu.h,,'`
     if test "x$ipuhead" != "x"; then
         IPU_CFLAGS=-I$ipuhead
@@ -172,6 +175,11 @@ fi
 AC_CHECK_LIB(ipu, mxc_ipu_lib_task_init, [IPU_LIBS=-lipu], [echo "No libipu around, don't use it"])
 AC_SUBST(IPU_CFLAGS)
 AC_SUBST(IPU_LIBS)
+
+dnl of the POSIX Real-Time Extensions.
+AC_CHECK_LIB(rt, clock_gettime)
+AC_SUBST(RT_CFLAGS)
+AC_SUBST(RT_LIBS)
 
 FSL_MM_CORE_CFLAGS=`$PKG_CONFIG --cflags libfslaudiocodec 2>/dev/null`
 FSL_MM_CORE_CFLAGS+=`$PKG_CONFIG --cflags libfslvideocodec 2>/dev/null`
@@ -220,6 +228,7 @@ FIND_ACODEC_SONAME(ac3d, arm11)
 FIND_ACODEC_SONAME(ac3d, arm12)
 FIND_ACODEC_SONAME(vorbisd, arm11)
 FIND_ACODEC_SONAME(vorbisd, arm12)
+FIND_ACODEC_SONAME(ddpd, arm12)
 
 dnl set the plugindir where plugins should be installed
 plugindir="\$(libdir)/gstreamer-$GST_MAJORMINOR"
@@ -246,7 +255,9 @@ AM_CONDITIONAL(PLATFORM_IS_MX51, test "x$PLATFORM" = "xMX51")
 AM_CONDITIONAL(PLATFORM_IS_MX53, test "x$PLATFORM" = "xMX53")
 AM_CONDITIONAL(PLATFORM_IS_MX50, test "x$PLATFORM" = "xMX50")
 
-AM_CONDITIONAL(PLATFORM_IS_MX6X, test "x$PLATFORM" = "xMX6")
+AM_CONDITIONAL(PLATFORM_IS_MX6X, test "x$PLATFORM" = "xMX6" || test "x$PLATFORM" = "xMX6" || test "x$PLATFORM" = "xMX6SL")
+AM_CONDITIONAL(PLATFORM_IS_MX6, test "x$PLATFORM" = "xMX6")
+AM_CONDITIONAL(PLATFORM_IS_MX6SL, test "x$PLATFORM" = "xMX6SL")
 
 
 AM_CONDITIONAL(LTIBBUILD, test "x$BUILDER" = "xLTIB")
@@ -277,10 +288,13 @@ CHECK_DISABLE_FEATURE(beep, [Disable beep audio decoder], [BEEP], [fsl_unia.h], 
 
 CHECK_DISABLE_FEATURE(v4lsink, [Disable fsl v4l sink], [V4L_SINK], [linux/videodev2.h], [plugin: v4lsink])
 
+# Allow headers to be inside include/uapi and include/linux
 saved_CFLAGS="$CFLAGS"
 CFLAGS="$CFLAGS $IPU_CFLAGS"
-CHECK_DISABLE_FEATURE(isink, [Disable fsl ipu sink], [I_SINK], [linux/mxcfb.h], [plugin: isink])
-CHECK_DISABLE_FEATURE(ipucsc, [Disable fsl ipu csc], [I_CSC], [linux/mxcfb.h], [plugin: ipucsc])
+
+CHECK_DISABLE_FEATURE(isink, [Disable fsl ipu sink], [I_SINK], [linux/mxcfb.h uapi/mxcfb.h], [plugin: isink])
+CHECK_DISABLE_FEATURE(ipucsc, [Disable fsl ipu csc], [I_CSC], [linux/mxcfb.h uapi/mxcfb.h], [plugin: ipucsc])
+
 CFLAGS=$saved_CFLAGS
 
 CHECK_DISABLE_FEATURE(ipulib, [Disable ipu lib], [IPU_LIB], [mxc_ipu_hl_lib.h], [library: libipu])
@@ -325,6 +339,7 @@ src/parser/aiur/src/Makefile
 src/parser/aiur/src/aiur_registry.arm11.cf
 src/parser/aiur/src/aiur_registry.arm9.cf
 src/misc/v4l_source/src/Makefile
+src/misc/tvsrc/src/Makefile
 src/misc/v4l_sink/src/Makefile
 src/misc/i_sink/src/Makefile
 tools/Makefile

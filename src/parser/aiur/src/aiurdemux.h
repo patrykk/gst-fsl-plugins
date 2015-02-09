@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010-2012, Freescale Semiconductor, Inc. All rights reserved.
+ * Copyright (c) 2010-2013, Freescale Semiconductor, Inc. All rights reserved.
  *
  */
 
@@ -82,6 +82,7 @@ typedef struct _AiurDemuxOption
   guint program_mask;
   gint program_number;
   guint interleave_queue_size;
+  guint streaming_latency;
 } AiurDemuxOption;
 
 typedef struct
@@ -100,6 +101,7 @@ typedef struct
   uint32 track_num;
   uint32 program_num;
   gboolean live;
+  gboolean streaming;
   gint read_mode;
   uint32 suggest_read_mode;
   gboolean auto_retimestamp;
@@ -152,6 +154,7 @@ typedef struct
   gint num_of_samples;
 
   gboolean drop_sample;
+  gboolean autoDelay;
 } AiurDemuxConfig;
 
 struct _GstAiurDemux
@@ -192,12 +195,13 @@ struct _GstAiurDemux
 
   AiurDemuxPlayMode play_mode;
 
-  GstClockTime start_time;
   gint32 discont_check_track;
   guint32 new_segment_mask;
   guint32 valid_mask;
   gboolean check_discont;
   GstClockTime base_offset;
+  GstClockTime clock_offset;//clock running time when first buffer arrives
+  GstClockTime start_time;//first buffer timestamp
 
   guint interleave_queue_size;
 

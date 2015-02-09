@@ -1,6 +1,5 @@
 # vss device definition
-# Master=DVI, Slave=TV
-# please add "video=video=mxcdi1fb:YUV444,720P60 video=mxcdi0fb:RGB24,1024x768M-16@60" to kernel startup command line
+# Singel display 
 
 # master display
 [master]

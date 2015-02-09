@@ -246,6 +246,8 @@ typedef struct MFW_GST_V4LSINK_INFO_S
   gint cr_right_bypixel_orig;   /* original crop right offset set by decoder in caps */
   gint cr_top_bypixel_orig;     /* original crop top offset set by decoder in caps */
   gint cr_bottom_bypixel_orig;  /* original crop bottom offset set by decoder in caps */
+  gboolean need_check_params;
+  gboolean drop_frame;
   gboolean enable_dump;
   gchar *dump_location;
   FILE *dumpfile;
@@ -285,6 +287,7 @@ typedef struct MFW_GST_V4LSINK_INFO_S
   gboolean stream_on;
   struct v4l2_crop crop;
   struct v4l2_crop prevCrop;    /* The previous crop information */
+  struct v4l2_rect previCrop;   /* The previous video input crop information */
 
   gint field;
   gboolean is_paused;

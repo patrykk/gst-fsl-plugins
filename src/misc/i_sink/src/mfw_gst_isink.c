@@ -1778,6 +1778,7 @@ mfw_gst_isink_class_init (MfwGstISinkClass * klass)
           "get/set the height of the image to be displayed",
           0, G_MAXINT, 0, G_PARAM_READWRITE));
 
+#if 0
   g_object_class_install_property (gobject_class, ISINK_PROP_COLORKEY_RED,
       g_param_spec_int ("colorkey-red",
           "colorkey red",
@@ -1793,6 +1794,7 @@ mfw_gst_isink_class_init (MfwGstISinkClass * klass)
           "colorkey blue",
           "set blue for colorkey",
           0, 255, COLORKEY_BLUE, G_PARAM_READWRITE));
+#endif
 
 #if 1
   for (i = 0; i < VD_MAX + 1; i++) {

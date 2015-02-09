@@ -15,7 +15,7 @@
 */
 
 /*
- * Copyright (c) 2011-2012, Freescale Semiconductor, Inc. All rights reserved. 
+ * Copyright (c) 2011-2014, Freescale Semiconductor, Inc. All rights reserved.
  *
  */
 
@@ -763,7 +763,12 @@ gst_beepdec_setcaps (GstPad * pad, GstCaps * caps)
           CORE_API (beepdec->beep_interface, setDecoderPara, goto error,
               core_ret, beepdec->handle, UNIA_STREAM_TYPE, &parameter);
 	  }
-      if (value = gst_structure_get_value (structure, "framed")) {
+      //if (value = gst_structure_get_value (structure, "framed")) {
+      value = gst_structure_get_value (structure, "framed");
+      if (!value) {
+        value = gst_structure_get_value (structure, "parsed");
+      }
+      if (value) {
         if (g_value_get_boolean (value)) {
           parameter.framed = TRUE;
           beepdec->framed = TRUE;
@@ -880,7 +885,8 @@ gst_beepdec_chain (GstPad * pad, GstBuffer * buffer)
       }
       goto bail;
     } else {
-      beepdec->err_cnt = 0;
+      if (obuf && osize !=0)
+          beepdec->err_cnt = 0;
     }
 
     GST_LOG ("Decode return 0x%x", core_ret);
@@ -922,14 +928,16 @@ gst_beepdec_chain (GstPad * pad, GstBuffer * buffer)
         }
         CORE_API (beepdec->beep_interface, setDecoderPara, goto bail, core_ret,
             beepdec->handle, UNIA_OUTPUT_PCM_FORMAT, &parameter);
-
+      }
         gst_tag_list_add (list, GST_TAG_MERGE_APPEND, GST_TAG_BEEP_CHANNELS,
             parameter.outputFormat.channels, NULL);
 
         CORE_API (beepdec->beep_interface, getDecoderPara, goto bail, core_ret,
             beepdec->handle, UNIA_BITRATE, &parameter);
+        if(parameter.bitrate > 0){
         gst_tag_list_add (list, GST_TAG_MERGE_APPEND, GST_TAG_BITRATE,
             parameter.bitrate, NULL);
+        }
 
         CORE_API (beepdec->beep_interface, getDecoderPara, goto bail, core_ret,
             beepdec->handle, UNIA_SAMPLERATE, &parameter);
@@ -943,7 +951,6 @@ gst_beepdec_chain (GstPad * pad, GstBuffer * buffer)
 
         gst_element_found_tags (GST_ELEMENT (beepdec), list);
 
-      }
     }
 
     if (obuf) {
@@ -1099,15 +1106,19 @@ gst_beepdec_sink_event (GstPad * pad, GstEvent * event)
     case GST_EVENT_FLUSH_STOP:
     {
       uint32 core_ret;
+      if(beepdec->beep_interface && beepdec->handle){
       CORE_API (beepdec->beep_interface, resetDecoder, goto bail, core_ret,
           beepdec->handle);
+      }
       ret = gst_pad_event_default (pad, event);
       break;
     }
     case GST_EVENT_EOS:
     {
       GST_INFO ("EOS received");
-      gst_beepdec_chain (pad, NULL);
+      if (NULL != beepdec->handle) {
+        gst_beepdec_chain (pad, NULL);
+      }
       ret = gst_pad_event_default (pad, event);
       break;
     }

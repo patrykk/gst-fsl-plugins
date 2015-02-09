@@ -72,7 +72,7 @@ am__installdirs = "$(DESTDIR)$(libdir)" "$(DESTDIR)$(datadir)" \
 LTLIBRARIES = $(lib_LTLIBRARIES)
 am__DEPENDENCIES_1 =
 libgstfsl_@GST_MAJORMINOR@_la_DEPENDENCIES = $(am__DEPENDENCIES_1) \
-	$(am__DEPENDENCIES_1)
+	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1)
 am__libgstfsl_@GST_MAJORMINOR@_la_SOURCES_DIST =  \
 	gstbufmeta/gstbufmeta.c gstnext/gstnext.c \
 	gstsutils/gstsutils.c sconf/mfw_gst_sconf.c me/mfw_gst_ts.c \
@@ -201,6 +201,8 @@ PKG_CONFIG_LIBDIR = @PKG_CONFIG_LIBDIR@
 PKG_CONFIG_PATH = @PKG_CONFIG_PATH@
 PLATFORM = @PLATFORM@
 RANLIB = @RANLIB@
+RT_CFLAGS = @RT_CFLAGS@
+RT_LIBS = @RT_LIBS@
 SED = @SED@
 SET_MAKE = @SET_MAKE@
 SHELL = @SHELL@
@@ -240,6 +242,7 @@ build_vendor = @build_vendor@
 builddir = @builddir@
 datadir = @datadir@
 datarootdir = @datarootdir@
+ddpd_arm12_SONAME = @ddpd_arm12_SONAME@
 docdir = @docdir@
 dvidir = @dvidir@
 exec_prefix = @exec_prefix@
@@ -320,7 +323,7 @@ lib_LTLIBRARIES = libgstfsl-@GST_MAJORMINOR@.la
 
 libgstfsl_@GST_MAJORMINOR@_la_CFLAGS = $(GST_BASE_CFLAGS) $(IPU_CFLAGS) -I../inc/common
 libgstfsl_@GST_MAJORMINOR@_la_LDFLAGS = -version-info @GSTMXLIBS_VERSION@
-libgstfsl_@GST_MAJORMINOR@_la_LIBADD = $(GST_BASE_LIBS) -lgstvideo-@GST_MAJORMINOR@ -lgstinterfaces-$(GST_MAJORMINOR) $(IPU_LIBS)
+libgstfsl_@GST_MAJORMINOR@_la_LIBADD = $(GST_BASE_LIBS) -lgstvideo-@GST_MAJORMINOR@ -lgstinterfaces-$(GST_MAJORMINOR) $(IPU_LIBS) $(RT_LIBS)
 libgstfsl_@GST_MAJORMINOR@includedir = $(includedir)/gstreamer-@GST_MAJORMINOR@/gst/imx-mm
 libgstfsl_@GST_MAJORMINOR@include_HEADERS = \
     gstbufmeta/gstbufmeta.h     \
@@ -331,7 +334,7 @@ libgstfsl_@GST_MAJORMINOR@include_HEADERS = \
     vss/mfw_gst_vss_common.h    \
     vss/mfw_gst_video_surface.h
 
-data_DATA = vss/vssconfig vss/vssconfig.dvi_tv vss/vssconfig.dvi_wvga
+data_DATA = vss/vssconfig vss/vssconfig.dual.lvds_hdmi vss/vssconfig.triple.2lvds_hdmi
 EXTRA_DIST = $(data_DATA)
 all: all-am
 

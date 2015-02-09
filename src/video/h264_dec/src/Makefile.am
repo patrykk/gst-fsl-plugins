@@ -33,16 +33,16 @@ endif
 
 
 if PLATFORM_IS_MX3X
-libmfw_gst_h264dec_la_CFLAGS = $(GST_BASE_CFLAGS) -fno-omit-frame-pointer $(FSL_MM_CORE_CFLAGS) -I../../../../inc/plugin -O2 -DDPB_FIX -DDIRECT_RENDER_VERSION=2 -DFRAMEDROPING_ENALBED  -I../../../../libs/me -I../../../../libs/gstbufmeta
+libmfw_gst_h264dec_la_CFLAGS = $(GST_BASE_CFLAGS) -fno-omit-frame-pointer $(FSL_MM_CORE_CFLAGS) -I../../../../inc/plugin -I../../../../inc/core_lib -O2 -DDPB_FIX -DDIRECT_RENDER_VERSION=2 -DFRAMEDROPING_ENALBED  -I../../../../libs/me -I../../../../libs/gstbufmeta
 endif
 
 
 if PLATFORM_IS_MX5X
-libmfw_gst_h264dec_la_CFLAGS = $(GST_BASE_CFLAGS) -fno-omit-frame-pointer $(FSL_MM_CORE_CFLAGS) -I../../../../inc/plugin -O2 -DDPB_FIX -DDIRECT_RENDER_VERSION=2 -DFRAMEDROPING_ENALBED  -I../../../../libs/me -I../../../../libs/gstbufmeta
+libmfw_gst_h264dec_la_CFLAGS = $(GST_BASE_CFLAGS) -fno-omit-frame-pointer $(FSL_MM_CORE_CFLAGS) -I../../../../inc/plugin -I../../../../inc/core_lib -O2 -DDPB_FIX -DDIRECT_RENDER_VERSION=2 -DFRAMEDROPING_ENALBED  -I../../../../libs/me -I../../../../libs/gstbufmeta
 endif
 
 if PLATFORM_IS_MX6X
-libmfw_gst_h264dec_la_CFLAGS = $(GST_BASE_CFLAGS) -fno-omit-frame-pointer $(FSL_MM_CORE_CFLAGS) -I../../../../inc/plugin -O2 -DDPB_FIX -DDIRECT_RENDER_VERSION=2 -DFRAMEDROPING_ENALBED  -I../../../../libs/me -I../../../../libs/gstbufmeta
+libmfw_gst_h264dec_la_CFLAGS = $(GST_BASE_CFLAGS) -fno-omit-frame-pointer $(FSL_MM_CORE_CFLAGS) -I../../../../inc/plugin -I../../../../inc/core_lib -O2 -DDPB_FIX -DDIRECT_RENDER_VERSION=2 -DFRAMEDROPING_ENALBED  -I../../../../libs/me -I../../../../libs/gstbufmeta
 endif
 
 libmfw_gst_h264dec_la_LIBADD = $(GST_BASE_LIBS) $(GST_PLUGINS_BASE_LIBS) $(GST_LIBS) -l$(CORELIB)

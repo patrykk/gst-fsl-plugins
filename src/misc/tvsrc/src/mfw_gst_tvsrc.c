@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005-2012, Freescale Semiconductor, Inc. All rights reserved.
+ * Copyright (c) 2011-2013, Freescale Semiconductor, Inc. All rights reserved.
  *
  */
 
@@ -21,9 +21,9 @@
  */
 
 /*
- * Module Name:    mfw_gst_v4lsrc.c
+ * Module Name:    mfw_gst_tvsrc.c
  *
- * Description:    Implementation of V4L Source Plugin for Gstreamer
+ * Description:    Implementation of TV-in module V4L2 Plugin for Gstreamer
  *
  * Portability:    This code is written for Linux OS and Gstreamer
  */
@@ -47,7 +47,7 @@
 #include <linux/videodev2.h>
 #include <sys/mman.h>
 #include <string.h>
-#include "mfw_gst_v4lsrc.h"
+#include "mfw_gst_tvsrc.h"
 #ifdef MX27
 #include "mxcfb.h"
 #else
@@ -57,15 +57,15 @@
 #include "mfw_gst_utils.h"
 #include "gstbufmeta.h"
 
-//#define GST_DEBUG g_print
 
 /*=============================================================================
                             LOCAL CONSTANTS
 =============================================================================*/
-/* None */
 #define DEFAULT_QUEUE_SIZE 6
 #define NO_BUFFER_WAIT_COUNT   200
 #define NO_BUFFER_WAIT_TIME_MS 5
+#define NTSC_FRAMERATE 30
+#define PAL_FRAMRRATE 25
 
 /*=============================================================================
                 LOCAL TYPEDEFS (STRUCTURES, UNIONS, ENUMS)
@@ -74,22 +74,8 @@
 enum
 {
   MFW_V4L_SRC_0,
-  MFW_V4L_SRC_WIDTH,
-  MFW_V4L_SRC_HEIGHT,
-  MFW_V4L_SRC_CAPTURE_MODE,
-  MFW_V4L_SRC_INPUT,
-  MFW_V4L_SRC_ROTATE,
-  MFW_V4L_SRC_PREVIEW,
-  MFW_V4L_SRC_PREVIEW_WIDTH,
-  MFW_V4L_SRC_PREVIEW_TOP,
-  MFW_V4L_SRC_PREVIEW_LEFT,
-  MFW_V4L_SRC_PREVIEW_HEIGHT,
-  MFW_V4L_SRC_CROP_PIXEL,
   MFW_V4L_SRC_FRAMERATE_NUM,
   MFW_V4L_SRC_FRAMERATE_DEN,
-  MFW_V4L_SRC_SENSOR_WIDTH,
-  MFW_V4L_SRC_SENSOR_HEIGHT,
-  MFW_V4L_SRC_BACKGROUND,
   MFW_V4L_SRC_DEVICE,
   MFW_V4L_SRC_QUEUE_SIZE,
 };
@@ -100,7 +86,7 @@ enum
 =============================================================================*/
 
 /* used for debugging */
-#define GST_CAT_DEFAULT mfw_gst_v4lsrc_debug
+#define GST_CAT_DEFAULT mfw_gst_tvsrc_debug
 
 #define ipu_fourcc(a,b,c,d)\
         (((__u32)(a)<<0)|((__u32)(b)<<8)|((__u32)(c)<<16)|((__u32)(d)<<24))
@@ -133,36 +119,36 @@ enum
                         LOCAL FUNCTION PROTOTYPES
 =============================================================================*/
 
-GST_DEBUG_CATEGORY_STATIC (mfw_gst_v4lsrc_debug);
-static void mfw_gst_v4lsrc_buffer_class_init (gpointer g_class,
+GST_DEBUG_CATEGORY_STATIC (mfw_gst_tvsrc_debug);
+static void mfw_gst_tvsrc_buffer_class_init (gpointer g_class,
     gpointer class_data);
-static void mfw_gst_v4lsrc_buffer_init (GTypeInstance * instance,
+static void mfw_gst_tvsrc_buffer_init (GTypeInstance * instance,
     gpointer g_class);
-static void mfw_gst_v4lsrc_buffer_finalize (MFWGstV4LSrcBuffer * v4lsrc_buffer);
-static void mfw_gst_v4lsrc_fixate (GstPad * pad, GstCaps * caps);
-static GstCaps *mfw_gst_v4lsrc_get_caps (GstBaseSrc * src);
-static GstFlowReturn mfw_gst_v4lsrc_create (GstPushSrc * src, GstBuffer ** buf);
-static GstBuffer *mfw_gst_v4lsrc_buffer_new (MFWGstV4LSrc * v4l_src);
-static GstStateChangeReturn mfw_gst_v4lsrc_change_state (GstElement * element,
+static void mfw_gst_tvsrc_buffer_finalize (MFWGstTVSRCBuffer * TVSRC_buffer);
+static void mfw_gst_tvsrc_fixate (GstPad * pad, GstCaps * caps);
+static GstCaps *mfw_gst_tvsrc_get_caps (GstBaseSrc * src);
+static GstFlowReturn mfw_gst_tvsrc_create (GstPushSrc * src, GstBuffer ** buf);
+static GstBuffer *mfw_gst_tvsrc_buffer_new (MFWGstTVSRC * v4l_src);
+static GstStateChangeReturn mfw_gst_tvsrc_change_state (GstElement * element,
     GstStateChange transition);
 static gboolean unlock (GstBaseSrc *src);
-static gboolean mfw_gst_v4lsrc_stop (GstBaseSrc * src);
-static gboolean mfw_gst_v4lsrc_start (GstBaseSrc * src);
-static gboolean mfw_gst_v4lsrc_set_caps (GstBaseSrc * src, GstCaps * caps);
-static void mfw_gst_v4lsrc_get_property (GObject * object, guint prop_id,
+static gboolean mfw_gst_tvsrc_stop (GstBaseSrc * src);
+static gboolean mfw_gst_tvsrc_start (GstBaseSrc * src);
+static gboolean mfw_gst_tvsrc_set_caps (GstBaseSrc * src, GstCaps * caps);
+static void mfw_gst_tvsrc_get_property (GObject * object, guint prop_id,
     GValue * value, GParamSpec * pspec);
-static void mfw_gst_v4lsrc_set_property (GObject * object, guint prop_id,
+static void mfw_gst_tvsrc_set_property (GObject * object, guint prop_id,
     const GValue * value, GParamSpec * pspec);
-static gint mfw_gst_v4lsrc_capture_setup (MFWGstV4LSrc * v4l_src);
-static gint mfw_gst_v4lsrc_stop_capturing (MFWGstV4LSrc * v4l_src);
-static gint mfw_gst_v4lsrc_start_capturing (MFWGstV4LSrc * v4l_src);
+static gint mfw_gst_tvsrc_capture_setup (MFWGstTVSRC * v4l_src);
+static gint mfw_gst_tvsrc_stop_capturing (MFWGstTVSRC * v4l_src);
+static gint mfw_gst_tvsrc_start_capturing (MFWGstTVSRC * v4l_src);
 
 
-GST_BOILERPLATE (MFWGstV4LSrc, mfw_gst_v4lsrc, GstPushSrc, GST_TYPE_PUSH_SRC);
+GST_BOILERPLATE (MFWGstTVSRC, mfw_gst_tvsrc, GstPushSrc, GST_TYPE_PUSH_SRC);
 
 
 /*=============================================================================
-FUNCTION:           mfw_gst_v4lsrc_buffer_get_type    
+FUNCTION:           mfw_gst_tvsrc_buffer_get_type    
 
 DESCRIPTION:        This funtion registers the  buffer type on to the V4L Source plugin
              
@@ -174,32 +160,32 @@ POST-CONDITIONS:    None
 IMPORTANT NOTES:    None
 =============================================================================*/
 GType
-mfw_gst_v4lsrc_buffer_get_type (void)
+mfw_gst_tvsrc_buffer_get_type (void)
 {
-  static GType v4lsrc_buffer_type;
+  static GType TVSRC_buffer_type;
 
-  if (G_UNLIKELY (v4lsrc_buffer_type == 0)) {
-    static const GTypeInfo v4lsrc_buffer_info = {
+  if (G_UNLIKELY (TVSRC_buffer_type == 0)) {
+    static const GTypeInfo TVSRC_buffer_info = {
       sizeof (GstBufferClass),
       NULL,
       NULL,
-      mfw_gst_v4lsrc_buffer_class_init,
+      mfw_gst_tvsrc_buffer_class_init,
       NULL,
       NULL,
-      sizeof (MFWGstV4LSrcBuffer),
+      sizeof (MFWGstTVSRCBuffer),
       0,
-      mfw_gst_v4lsrc_buffer_init,
+      mfw_gst_tvsrc_buffer_init,
       NULL
     };
-    v4lsrc_buffer_type = g_type_register_static (GST_TYPE_BUFFER,
-        "MFWGstV4LSrcBuffer", &v4lsrc_buffer_info, 0);
+    TVSRC_buffer_type = g_type_register_static (GST_TYPE_BUFFER,
+        "MFWGstTVSRCBuffer", &TVSRC_buffer_info, 0);
   }
-  return v4lsrc_buffer_type;
+  return TVSRC_buffer_type;
 }
 
 
 /*=============================================================================
-FUNCTION:           mfw_gst_v4lsrc_buffer_class_init    
+FUNCTION:           mfw_gst_tvsrc_buffer_class_init    
 
 DESCRIPTION:   This funtion registers the  funtions used by the 
                 buffer class of the V4l source plug-in
@@ -214,17 +200,17 @@ POST-CONDITIONS:    None
 IMPORTANT NOTES:    None
 =============================================================================*/
 static void
-mfw_gst_v4lsrc_buffer_class_init (gpointer g_class, gpointer class_data)
+mfw_gst_tvsrc_buffer_class_init (gpointer g_class, gpointer class_data)
 {
   GstMiniObjectClass *mini_object_class = GST_MINI_OBJECT_CLASS (g_class);
 
   mini_object_class->finalize = (GstMiniObjectFinalizeFunction)
-      mfw_gst_v4lsrc_buffer_finalize;
+      mfw_gst_tvsrc_buffer_finalize;
 }
 
 
 /*=============================================================================
-FUNCTION:      mfw_gst_v4lsrc_buffer_init    
+FUNCTION:      mfw_gst_tvsrc_buffer_init    
 
 DESCRIPTION:   This funtion initialises the buffer class of the V4l source plug-in
              
@@ -238,14 +224,14 @@ POST-CONDITIONS:    None
 IMPORTANT NOTES:    None
 =============================================================================*/
 static void
-mfw_gst_v4lsrc_buffer_init (GTypeInstance * instance, gpointer g_class)
+mfw_gst_tvsrc_buffer_init (GTypeInstance * instance, gpointer g_class)
 {
 
 }
 
 
 /*=============================================================================
-FUNCTION:      mfw_gst_v4lsrc_buffer_finalize    
+FUNCTION:      mfw_gst_tvsrc_buffer_finalize    
 
 DESCRIPTION:   This function is invoked whenever the buffer object belonging 
                to the V4L Source buffer glass is tried to un-refrenced. Here 
@@ -253,7 +239,7 @@ DESCRIPTION:   This function is invoked whenever the buffer object belonging
                freeing the memory allocated.
 
 ARGUMENTS PASSED:
-        v4lsrc_buffer -   pointer to V4L sou4rce buffer class
+        TVSRC_buffer -   pointer to V4L sou4rce buffer class
 
 RETURN VALUE:       None
 PRE-CONDITIONS:     None
@@ -261,17 +247,17 @@ POST-CONDITIONS:    None
 IMPORTANT NOTES:    None
 =============================================================================*/
 static void
-mfw_gst_v4lsrc_buffer_finalize (MFWGstV4LSrcBuffer * v4lsrc_buffer)
+mfw_gst_tvsrc_buffer_finalize (MFWGstTVSRCBuffer * TVSRC_buffer)
 {
-  MFWGstV4LSrc *v4l_src;
+  MFWGstTVSRC *v4l_src;
   gint num;
   GstBuffer *buf;
   struct v4l2_buffer v4lbuf;
 
 
-  v4l_src = v4lsrc_buffer->v4lsrccontext;
+  v4l_src = TVSRC_buffer->TVSRCcontext;
   if (v4l_src->start) {
-    num = v4lsrc_buffer->num;
+    num = TVSRC_buffer->num;
 
 
     buf = (GstBuffer *) (v4l_src->buffers[num]);
@@ -279,10 +265,10 @@ mfw_gst_v4lsrc_buffer_finalize (MFWGstV4LSrcBuffer * v4lsrc_buffer)
 
     g_mutex_lock (v4l_src->pool_lock);
     if (g_list_find (v4l_src->free_pool, (gpointer) (num)))
-        GST_WARNING ("something wrong here, v4l buffer index:%d already in queue",
-                num);
+      GST_WARNING ("something wrong here, v4l buffer index:%d already in queue",
+          num);
     else
-        GST_LOG ("v4l buffer index:%d will be push in pool", num);
+      GST_LOG ("v4l buffer index:%d will be push in pool", num);
     g_mutex_unlock (v4l_src->pool_lock);
 
     memset (&v4lbuf, 0, sizeof (v4lbuf));
@@ -298,17 +284,17 @@ mfw_gst_v4lsrc_buffer_finalize (MFWGstV4LSrcBuffer * v4lsrc_buffer)
     g_mutex_lock (v4l_src->pool_lock);
     v4l_src->free_pool = g_list_append (v4l_src->free_pool, (gpointer) num);
     g_mutex_unlock (v4l_src->pool_lock);
-    GST_LOG_OBJECT (v4l_src, "freeing buffer %p for frame %d", v4lsrc_buffer,
+    GST_LOG_OBJECT (v4l_src, "freeing buffer %p for frame %d", TVSRC_buffer,
         num);
-    gst_buffer_ref (GST_BUFFER_CAST (v4lsrc_buffer));
+    gst_buffer_ref (GST_BUFFER_CAST (TVSRC_buffer));
   } else {
-    GST_LOG ("free buffer %d\n", v4lsrc_buffer->num);
+    GST_LOG ("free buffer %d\n", TVSRC_buffer->num);
   }
 }
 
 
 /*=============================================================================
-FUNCTION:      mfw_gst_v4lsrc_start_capturing    
+FUNCTION:      mfw_gst_tvsrc_start_capturing    
         
 DESCRIPTION:   This function triggers the V4L Driver to start Capturing
 
@@ -321,22 +307,22 @@ POST-CONDITIONS:    None
 IMPORTANT NOTES:    None
 =============================================================================*/
 static gint
-mfw_gst_v4lsrc_start_capturing (MFWGstV4LSrc * v4l_src)
+mfw_gst_tvsrc_start_capturing (MFWGstTVSRC * v4l_src)
 {
   guint i;
   struct v4l2_buffer *buf;
-  MFWGstV4LSrcBuffer *v4lsrc_buf = NULL;
+  MFWGstTVSRCBuffer *tvsrc_buf = NULL;
   enum v4l2_buf_type type;
 
   v4l_src->buffers = g_malloc (v4l_src->queue_size * sizeof (GstBuffer *));
   // query for v4l_src->queue_size number of buffers to store the captured data 
   for (i = 0; i < v4l_src->queue_size; i++) {
-    v4lsrc_buf =
-        (MFWGstV4LSrcBuffer *) gst_mini_object_new (MFW_GST_TYPE_V4LSRC_BUFFER);
-    v4lsrc_buf->num = i;
-    v4lsrc_buf->v4lsrccontext = v4l_src;
+    tvsrc_buf =
+        (MFWGstTVSRCBuffer *) gst_mini_object_new (MFW_GST_TYPE_TVSRC_BUFFER);
+    tvsrc_buf->num = i;
+    tvsrc_buf->TVSRCcontext = v4l_src;
     /* v4l2_buffer initialization */
-    buf = &v4lsrc_buf->v4l2_buf;
+    buf = &tvsrc_buf->v4l2_buf;
     // memset (&buf, 0, sizeof (buf));
     buf->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     buf->memory = V4L2_MEMORY_MMAP;
@@ -347,7 +333,7 @@ mfw_gst_v4lsrc_start_capturing (MFWGstV4LSrc * v4l_src)
     }
     // v4l_src->buffers[i] = gst_buffer_new ();
     /* GstBuffer initialization */
-    v4l_src->buffers[i] = (GstBuffer *) v4lsrc_buf;
+    v4l_src->buffers[i] = (GstBuffer *) tvsrc_buf;
     GST_BUFFER_SIZE (v4l_src->buffers[i]) = buf->length;
     GST_BUFFER_OFFSET (v4l_src->buffers[i]) = (size_t) buf->m.offset;
     GST_BUFFER_DATA (v4l_src->buffers[i]) = mmap (NULL,
@@ -400,7 +386,7 @@ mfw_gst_v4lsrc_start_capturing (MFWGstV4LSrc * v4l_src)
 
 
 /*=============================================================================
-FUNCTION:      mfw_gst_v4lsrc_stop_capturing    
+FUNCTION:      mfw_gst_tvsrc_stop_capturing    
         
 DESCRIPTION:   This function triggers the V4L Driver to stop Capturing
 
@@ -413,7 +399,7 @@ POST-CONDITIONS:    None
 IMPORTANT NOTES:    None
 =============================================================================*/
 static gint
-mfw_gst_v4lsrc_stop_capturing (MFWGstV4LSrc * v4l_src)
+mfw_gst_tvsrc_stop_capturing (MFWGstTVSRC * v4l_src)
 {
   enum v4l2_buf_type type;
   guint i;
@@ -445,7 +431,7 @@ mfw_gst_v4lsrc_stop_capturing (MFWGstV4LSrc * v4l_src)
 
 
 /*=============================================================================
-FUNCTION:      mfw_gst_v4lsrc_capture_setup    
+FUNCTION:      mfw_gst_tvsrc_capture_setup    
         
 DESCRIPTION:   This function does the necessay initialistions for the V4L capture
                device driver.
@@ -459,104 +445,84 @@ POST-CONDITIONS:    None
 IMPORTANT NOTES:    None
 =============================================================================*/
 static gint
-mfw_gst_v4lsrc_capture_setup (MFWGstV4LSrc * v4l_src)
+mfw_gst_tvsrc_capture_setup (MFWGstTVSRC * v4l_src)
 {
-  struct v4l2_format fmt = {0};
-  struct v4l2_control ctrl = {0};
-  struct v4l2_streamparm parm = {0};
-  struct v4l2_frmsizeenum fszenum = {0};
-  gint input;
+  struct v4l2_format fmt;
+  struct v4l2_control ctrl;
+  struct v4l2_streamparm parm;
   gint fd_v4l = 0;
   struct v4l2_mxc_offset off;
   gint in_width = 0, in_height = 0;
+  v4l2_std_id id;
 
   if ((fd_v4l = open (v4l_src->devicename, O_RDWR, 0)) < 0) {
     GST_ERROR (">>V4L_SRC: Unable to open %s", v4l_src->devicename);
     return 0;
   }
 
-  if (v4l_src->crop_pixel) {
-    in_width = v4l_src->capture_width - (2 * v4l_src->crop_pixel);
-    in_height = v4l_src->capture_height - (2 * v4l_src->crop_pixel);
-  } else {
-    in_width = v4l_src->capture_width;
-    in_height = v4l_src->capture_height;
+  if (ioctl (fd_v4l, VIDIOC_G_STD, &id) < 0) {
+    g_print ("VIDIOC_G_STD failed\n");
+    close (fd_v4l);
+    return 0;
   }
-  fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-#ifdef MX51
-  fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_NV12;
-#else
-  fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUV420;
-  if (IS_PXP (v4l_src->chipcode)) {
-      fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_UYVY;
+  v4l_src->id = id;
+
+  if (ioctl (fd_v4l, VIDIOC_S_STD, &id) < 0) {
+    g_print ("VIDIOC_S_STD failed\n");
+    close (fd_v4l);
+    return 0;
   }
-#endif
-  fmt.fmt.pix.width = in_width;
-  fmt.fmt.pix.height = in_height;
-
-  fszenum.index = v4l_src->capture_mode;
-  fszenum.pixel_format = fmt.fmt.pix.pixelformat;
-  if (ioctl (fd_v4l, VIDIOC_ENUM_FRAMESIZES, &fszenum)<0){
-    GST_ERROR("enum framesizes failed for capture mode %d",  v4l_src->capture_mode);
-    return -1;
-  }
-  v4l_src->capture_width = fszenum.discrete.width;
-  v4l_src->capture_height = fszenum.discrete.height;
-
-  GST_INFO ("capture mode %d: %dx%d", v4l_src->capture_mode, v4l_src->capture_width, v4l_src->capture_height);
-
-  if (v4l_src->crop_pixel) {
-    off.u_offset = (2 * v4l_src->crop_pixel + in_width)
-        * (in_height + v4l_src->crop_pixel)
-        - v4l_src->crop_pixel + (v4l_src->crop_pixel / 2) * ((in_width / 2)
-        + v4l_src->crop_pixel) + v4l_src->crop_pixel / 2;
-    off.v_offset = off.u_offset + (v4l_src->crop_pixel + in_width / 2) *
-        ((in_height / 2) + v4l_src->crop_pixel);
-    fmt.fmt.pix.bytesperline = in_width + v4l_src->crop_pixel * 2;
-    fmt.fmt.pix.priv = (uint32_t) & off;
-    fmt.fmt.pix.sizeimage = (in_width + v4l_src->crop_pixel * 2)
-        * (in_height + v4l_src->crop_pixel * 2) * 3 / 2;
-  } else {
-    fmt.fmt.pix.bytesperline = in_width;
-    fmt.fmt.pix.priv = 0;
-    fmt.fmt.pix.sizeimage = 0;
-  }
-
 
   parm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   parm.parm.capture.timeperframe.numerator = v4l_src->fps_d;
   parm.parm.capture.timeperframe.denominator = v4l_src->fps_n;
   parm.parm.capture.capturemode = v4l_src->capture_mode;
-  if (!(IS_PXP (v4l_src->chipcode))) {
-    input = v4l_src->input;
-
+  if ((v4l_src->tv_in) || (parm.parm.capture.capturemode >= 4)) {
+    gint input = 1;
+    g_print ("should set the input to 1\n");
     if (ioctl (fd_v4l, VIDIOC_S_INPUT, &input) < 0) {
       GST_ERROR (">>V4L_SRC: VIDIOC_S_INPUT failed");
       return -1;
     }
   }
 
+
   if (ioctl (fd_v4l, VIDIOC_S_PARM, &parm) < 0) {
     GST_ERROR (">>V4L_SRC: VIDIOC_S_PARM failed");
     return -1;
   }
 
-  if (IS_PXP (v4l_src->chipcode)) {
-    fmt.fmt.pix.width = v4l_src->capture_width;
-    fmt.fmt.pix.height = v4l_src->capture_height;
-  }
+  memset (&fmt, 0, sizeof (fmt));
+
+  fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+#if (defined (MX51) || (defined(MX6)))
+  fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_NV12;
+#else
+  fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUV420;
+#endif
+  fmt.fmt.pix.width = 0;
+  fmt.fmt.pix.height = 0;
+
+
   if (ioctl (fd_v4l, VIDIOC_S_FMT, &fmt) < 0) {
     GST_ERROR (">>V4L_SRC: set format failed");
     return 0;
   }
 
-  // Set rotation
-  ctrl.id = V4L2_CID_PRIVATE_BASE + 0;
-  ctrl.value = v4l_src->rotate;
-  if (ioctl (fd_v4l, VIDIOC_S_CTRL, &ctrl) < 0) {
-    GST_ERROR (">>V4L_SRC: rotation set ctrl failed");
+  if (ioctl (fd_v4l, VIDIOC_G_FMT, &fmt) < 0) {
+    g_print ("VIDIOC_G_FMT failed\n");
+    close (fd_v4l);
     return 0;
   }
+
+  v4l_src->capture_width = fmt.fmt.pix.width;
+  v4l_src->capture_height = fmt.fmt.pix.height;
+  if (v4l_src->id == V4L2_STD_NTSC) {
+    v4l_src->fps_n = NTSC_FRAMERATE;
+  } else {
+    v4l_src->fps_n = PAL_FRAMRRATE;
+  }
+
 
   struct v4l2_requestbuffers req;
   memset (&req, 0, sizeof (req));
@@ -566,7 +532,7 @@ mfw_gst_v4lsrc_capture_setup (MFWGstV4LSrc * v4l_src)
 
   if (ioctl (fd_v4l, VIDIOC_REQBUFS, &req) < 0) {
     GST_ERROR
-        (">>V4L_SRC: v4l_mfw_gst_v4lsrc_capture_setup: VIDIOC_REQBUFS failed");
+        (">>V4L_SRC: v4l_mfw_gst_tvsrc_capture_setup: VIDIOC_REQBUFS failed");
     return 0;
   }
 
@@ -575,7 +541,7 @@ mfw_gst_v4lsrc_capture_setup (MFWGstV4LSrc * v4l_src)
 
 
 /*=============================================================================
-FUNCTION:           mfw_gst_v4lsrc_set_property   
+FUNCTION:           mfw_gst_tvsrc_set_property   
         
 DESCRIPTION:        This function is notified if application changes the values of 
                     a property.            
@@ -592,56 +558,11 @@ POST-CONDITIONS:    None
 IMPORTANT NOTES:    None
 =============================================================================*/
 static void
-mfw_gst_v4lsrc_set_property (GObject * object, guint prop_id,
+mfw_gst_tvsrc_set_property (GObject * object, guint prop_id,
     const GValue * value, GParamSpec * pspec)
 {
-  MFWGstV4LSrc *v4l_src = MFW_GST_V4LSRC (object);
+  MFWGstTVSRC *v4l_src = MFW_GST_TVSRC (object);
   switch (prop_id) {
-    case MFW_V4L_SRC_WIDTH:
-      v4l_src->capture_width = g_value_get_int (value);
-      GST_DEBUG ("width=%d", v4l_src->capture_width);
-      break;
-    case MFW_V4L_SRC_HEIGHT:
-      v4l_src->capture_height = g_value_get_int (value);
-      GST_DEBUG ("height=%d", v4l_src->capture_height);
-      break;
-    case MFW_V4L_SRC_ROTATE:
-      v4l_src->rotate = g_value_get_int (value);
-      GST_DEBUG ("rotate=%d", v4l_src->rotate);
-      break;
-
-    case MFW_V4L_SRC_PREVIEW:
-      v4l_src->preview = g_value_get_boolean (value);
-      GST_DEBUG ("preview=%d", v4l_src->preview);
-      break;
-
-
-    case MFW_V4L_SRC_PREVIEW_WIDTH:
-      v4l_src->preview_width = g_value_get_int (value);
-      GST_DEBUG ("preview_width=%d", v4l_src->preview_width);
-      break;
-
-    case MFW_V4L_SRC_PREVIEW_HEIGHT:
-      v4l_src->preview_height = g_value_get_int (value);
-      GST_DEBUG ("preview_height=%d", v4l_src->preview_height);
-      break;
-
-    case MFW_V4L_SRC_PREVIEW_TOP:
-      v4l_src->preview_top = g_value_get_int (value);
-      GST_DEBUG ("preview_top=%d", v4l_src->preview_top);
-      break;
-
-    case MFW_V4L_SRC_PREVIEW_LEFT:
-      v4l_src->preview_left = g_value_get_int (value);
-      GST_DEBUG ("preview_left=%d", v4l_src->preview_left);
-      break;
-
-
-
-    case MFW_V4L_SRC_CROP_PIXEL:
-      v4l_src->crop_pixel = g_value_get_int (value);
-      GST_DEBUG ("crop_pixel=%d", v4l_src->crop_pixel);
-      break;
     case MFW_V4L_SRC_FRAMERATE_NUM:
       v4l_src->fps_n = g_value_get_int (value);
       GST_DEBUG ("framerate numerator =%d", v4l_src->fps_n);
@@ -650,37 +571,11 @@ mfw_gst_v4lsrc_set_property (GObject * object, guint prop_id,
       v4l_src->fps_d = g_value_get_int (value);
       GST_DEBUG ("framerate denominator=%d", v4l_src->fps_d);
       break;
-#if 0
-    case MFW_V4L_SRC_SENSOR_WIDTH:
-      v4l_src->sensor_width = g_value_get_int (value);
-      GST_DEBUG ("sensor width=%d", v4l_src->sensor_width);
-      break;
-    case MFW_V4L_SRC_SENSOR_HEIGHT:
-      v4l_src->sensor_height = g_value_get_int (value);
-      GST_DEBUG ("sensor height=%d", v4l_src->sensor_height);
-      break;
-#endif
-
-    case MFW_V4L_SRC_CAPTURE_MODE:
-      v4l_src->capture_mode = g_value_get_int (value);
-      GST_DEBUG ("capture mode=%d", v4l_src->capture_mode);
-      break;
-
-    case MFW_V4L_SRC_INPUT:
-      v4l_src->input  = g_value_get_int (value);
-      GST_DEBUG ("input=%d", v4l_src->input);
-      break;
-
-    case MFW_V4L_SRC_BACKGROUND:
-      v4l_src->bg = g_value_get_boolean (value);
-      GST_DEBUG ("bg value=%d", v4l_src->bg);
-      break;
     case MFW_V4L_SRC_DEVICE:
       if (v4l_src->devicename)
         g_free (v4l_src->devicename);
       v4l_src->devicename = g_strdup (g_value_get_string (value));
       break;
-
     case MFW_V4L_SRC_QUEUE_SIZE:
       v4l_src->queue_size = g_value_get_int (value);
       GST_DEBUG ("queue size=%d", v4l_src->queue_size);
@@ -695,7 +590,7 @@ mfw_gst_v4lsrc_set_property (GObject * object, guint prop_id,
 
 
 /*=============================================================================
-FUNCTION:   mfw_gst_v4lsrc_get_property    
+FUNCTION:   mfw_gst_tvsrc_get_property    
         
 DESCRIPTION:    This function is notified if application requests the values of 
                 a property.                  
@@ -712,44 +607,12 @@ POST-CONDITIONS:    None
 IMPORTANT NOTES:    None
 =============================================================================*/
 static void
-mfw_gst_v4lsrc_get_property (GObject * object, guint prop_id,
+mfw_gst_tvsrc_get_property (GObject * object, guint prop_id,
     GValue * value, GParamSpec * pspec)
 {
 
-  MFWGstV4LSrc *v4l_src = MFW_GST_V4LSRC (object);
+  MFWGstTVSRC *v4l_src = MFW_GST_TVSRC (object);
   switch (prop_id) {
-    case MFW_V4L_SRC_WIDTH:
-      g_value_set_int (value, v4l_src->capture_width);
-      break;
-    case MFW_V4L_SRC_HEIGHT:
-      g_value_set_int (value, v4l_src->capture_height);
-      break;
-    case MFW_V4L_SRC_ROTATE:
-      g_value_set_int (value, v4l_src->rotate);
-      break;
-
-    case MFW_V4L_SRC_PREVIEW:
-      g_value_set_boolean (value, v4l_src->preview);
-      break;
-    case MFW_V4L_SRC_PREVIEW_WIDTH:
-      g_value_set_int (value, v4l_src->preview_width);
-      break;
-    case MFW_V4L_SRC_PREVIEW_HEIGHT:
-      g_value_set_int (value, v4l_src->preview_height);
-      break;
-
-    case MFW_V4L_SRC_PREVIEW_TOP:
-      g_value_set_int (value, v4l_src->preview_top);
-      break;
-
-    case MFW_V4L_SRC_PREVIEW_LEFT:
-      g_value_set_int (value, v4l_src->preview_left);
-      break;
-
-
-    case MFW_V4L_SRC_CROP_PIXEL:
-      g_value_set_int (value, v4l_src->crop_pixel);
-      break;
     case MFW_V4L_SRC_FRAMERATE_NUM:
       g_value_set_int (value, v4l_src->fps_n);
       break;
@@ -757,26 +620,6 @@ mfw_gst_v4lsrc_get_property (GObject * object, guint prop_id,
       g_value_set_int (value, v4l_src->fps_d);
       break;
 
-#if 0
-    case MFW_V4L_SRC_SENSOR_WIDTH:
-      g_value_set_int (value, v4l_src->sensor_width);
-      break;
-    case MFW_V4L_SRC_SENSOR_HEIGHT:
-      g_value_set_int (value, v4l_src->sensor_height);
-      break;
-#endif
-
-    case MFW_V4L_SRC_CAPTURE_MODE:
-      g_value_set_int (value, v4l_src->capture_mode);
-      break;
-
-    case MFW_V4L_SRC_INPUT:
-      g_value_set_int (value, v4l_src->input);
-      break;
-
-    case MFW_V4L_SRC_BACKGROUND:
-      g_value_set_boolean (value, v4l_src->bg);
-      break;
     case MFW_V4L_SRC_DEVICE:
       g_value_set_string (value, v4l_src->devicename);
       break;
@@ -784,8 +627,6 @@ mfw_gst_v4lsrc_get_property (GObject * object, guint prop_id,
     case MFW_V4L_SRC_QUEUE_SIZE:
       g_value_set_int (value, v4l_src->queue_size);
       break;
-
-
 
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -796,7 +637,7 @@ mfw_gst_v4lsrc_get_property (GObject * object, guint prop_id,
 
 
 /*=============================================================================
-FUNCTION:            mfw_gst_v4lsrc_set_caps
+FUNCTION:            mfw_gst_tvsrc_set_caps
          
 DESCRIPTION:         this function does the capability negotiation between adjacent pad  
 
@@ -811,15 +652,15 @@ POST-CONDITIONS:    None
 IMPORTANT NOTES:    None
 =============================================================================*/
 static gboolean
-mfw_gst_v4lsrc_set_caps (GstBaseSrc * src, GstCaps * caps)
+mfw_gst_tvsrc_set_caps (GstBaseSrc * src, GstCaps * caps)
 {
-  MFWGstV4LSrc *v4l_src = MFW_GST_V4LSRC (src);
+  MFWGstTVSRC *v4l_src = MFW_GST_TVSRC (src);
   return TRUE;
 }
 
 
 /*=============================================================================
-FUNCTION:            mfw_gst_v4lsrc_overlay_setup
+FUNCTION:            mfw_gst_tvsrc_overlay_setup
          
 DESCRIPTION:         This function performs the initialisations required for preview
 
@@ -835,7 +676,7 @@ POST-CONDITIONS:    None
 IMPORTANT NOTES:    None
 =============================================================================*/
 gboolean
-mfw_gst_v4lsrc_overlay_setup (MFWGstV4LSrc * v4l_src, struct v4l2_format * fmt)
+mfw_gst_tvsrc_overlay_setup (MFWGstTVSRC * v4l_src, struct v4l2_format * fmt)
 {
   struct v4l2_streamparm parm;
   v4l2_std_id id;
@@ -845,20 +686,20 @@ mfw_gst_v4lsrc_overlay_setup (MFWGstV4LSrc * v4l_src, struct v4l2_format * fmt)
   int g_sensor_left = 0;
   int g_camera_color = 0;
   int fd_v4l = v4l_src->fd_v4l;
+  struct v4l2_framebuffer fb;
+  struct v4l2_cropcap cropcap;
 
   GST_INFO ("display lcd:%d\n", v4l_src->g_display_lcd);
   /* this ioctl sets up the LCD display for preview */
-  if (ioctl (fd_v4l, VIDIOC_S_OUTPUT, &v4l_src->g_display_lcd) < 0) {
+  if (ioctl (v4l_src->fd_v4l_out, VIDIOC_S_OUTPUT, &v4l_src->g_display_lcd) < 0) {
     GST_ERROR (">>V4L_SRC: VIDIOC_S_OUTPUT failed");
     return FALSE;
   }
 
-  ctl.id = V4L2_CID_PRIVATE_BASE + 2;
-  ctl.value = v4l_src->rotate;
-
-  /* this ioctl sets rotation value on the display */
-  if (ioctl (fd_v4l, VIDIOC_S_CTRL, &ctl) < 0) {
-    GST_ERROR (">>V4L_SRC: rotation set control failed");
+  memset (&cropcap, 0, sizeof (cropcap));
+  cropcap.type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
+  if (ioctl (v4l_src->fd_v4l_out, VIDIOC_CROPCAP, &cropcap) < 0) {
+    g_print ("get crop capability failed\n");
     return FALSE;
   }
 
@@ -869,11 +710,29 @@ mfw_gst_v4lsrc_overlay_setup (MFWGstV4LSrc * v4l_src, struct v4l2_format * fmt)
   crop.c.height = v4l_src->capture_height;
 
   /* this ioctl sets capture rectangle */
-  if (ioctl (fd_v4l, VIDIOC_S_CROP, &crop) < 0) {
+  if (ioctl (v4l_src->fd_v4l_out, VIDIOC_S_CROP, &crop) < 0) {
     GST_ERROR (">>V4L_SRC: set capture rectangle for cropping failed");
     return FALSE;
   }
 
+  ctl.id = V4L2_CID_PRIVATE_BASE;
+  ctl.value = 0;
+  if (ioctl (v4l_src->fd_v4l_out, VIDIOC_S_CTRL, &ctl) < 0) {
+    g_print ("set ctrl failed\n");
+    return FALSE;
+  }
+
+  ctl.id = V4L2_CID_PRIVATE_BASE + 3;
+  ctl.value = 0;
+  if (ioctl (v4l_src->fd_v4l_out, VIDIOC_S_CTRL, &ctl) < 0) {
+    g_print ("set ctrl failed\n");
+    return FALSE;
+  }
+  g_print ("set fb overlay\n");
+  fb.flags = V4L2_FBUF_FLAG_OVERLAY;
+  ioctl (v4l_src->fd_v4l_out, VIDIOC_S_FBUF, &fb);
+
+  g_print ("display lcd:%d\n", v4l_src->g_display_lcd);
 
   if (ioctl (fd_v4l, VIDIOC_S_FMT, fmt) < 0) {
     GST_ERROR (">>V4L_SRC: set format failed");
@@ -890,102 +749,24 @@ mfw_gst_v4lsrc_overlay_setup (MFWGstV4LSrc * v4l_src, struct v4l2_format * fmt)
     return FALSE;
   }
 
-  return TRUE;
-}
-
-
-
-/*=============================================================================
-FUNCTION:            mfw_gst_v4lsrc_start_preview
-         
-DESCRIPTION:         This function starts the preview of capture
-
-ARGUMENTS PASSED:    
-        fd_v4l    -   capture device ID
-        
-  
-RETURN VALUE:        TRUE - preview start initialised successfully
-                     FALSE - Error in starting the preview
-        
-PRE-CONDITIONS:     None
-POST-CONDITIONS:    None
-IMPORTANT NOTES:    None
-=============================================================================*/
-gboolean
-mfw_gst_v4lsrc_start_preview (int fd_v4l)
-{
-  int i;
-  int overlay = 1;
-  struct v4l2_control ctl;
-  int g_camera_color = 0;
-
-  if (ioctl (fd_v4l, VIDIOC_OVERLAY, &overlay) < 0) {
-    GST_ERROR (">>V4L_SRC: VIDIOC_OVERLAY start failed");
+  struct v4l2_requestbuffers req;
+  memset (&req, 0, sizeof (req));
+  req.count = v4l_src->queue_size;
+  req.type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
+  req.memory = V4L2_MEMORY_MMAP;
+  if (ioctl (v4l_src->fd_v4l_out, VIDIOC_REQBUFS, &req) < 0) {
+    g_print ("request buffers failed\n");
     return FALSE;
   }
 
-  for (i = 0; i < 3; i++) {
-    // flash a frame
-    ctl.id = V4L2_CID_PRIVATE_BASE + 1;
-    if (ioctl (fd_v4l, VIDIOC_S_CTRL, &ctl) < 0) {
-      GST_ERROR (">>V4L_SRC: set ctl failed");
-      return FALSE;
-    }
-    sleep (1);
-  }
-
-
-#if 0
-  if (g_camera_color == 1) {
-    ctl.id = V4L2_CID_BRIGHTNESS;
-    for (i = 0; i < 0xff; i += 0x20) {
-      ctl.value = i;
-      GST_DEBUG (">>V4L_SRC: change the brightness %d", i);
-      ioctl (fd_v4l, VIDIOC_S_CTRL, &ctl);
-      sleep (1);
-    }
-  } else if (g_camera_color == 2) {
-    ctl.id = V4L2_CID_SATURATION;
-    for (i = 25; i < 150; i += 25) {
-      ctl.value = i;
-      GST_DEBUG (">>V4L_SRC: change the color saturation %d", i);
-      ioctl (fd_v4l, VIDIOC_S_CTRL, &ctl);
-      sleep (5);
-    }
-  } else if (g_camera_color == 3) {
-    ctl.id = V4L2_CID_RED_BALANCE;
-    for (i = 0; i < 0xff; i += 0x20) {
-      ctl.value = i;
-      GST_DEBUG (">>V4L_SRC: change the red balance %d", i);
-      ioctl (fd_v4l, VIDIOC_S_CTRL, &ctl);
-      sleep (1);
-    }
-  } else if (g_camera_color == 4) {
-    ctl.id = V4L2_CID_BLUE_BALANCE;
-    for (i = 0; i < 0xff; i += 0x20) {
-      ctl.value = i;
-      GST_DEBUG (">>V4L_SRC: change the blue balance %d", i);
-      ioctl (fd_v4l, VIDIOC_S_CTRL, &ctl);
-      sleep (1);
-    }
-  } else if (g_camera_color == 5) {
-    ctl.id = V4L2_CID_BLACK_LEVEL;
-    for (i = 0; i < 4; i++) {
-      ctl.value = i;
-      GST_DEBUG (">>V4L_SRC: change the black balance %d", i);
-      ioctl (fd_v4l, VIDIOC_S_CTRL, &ctl);
-      sleep (5);
-    }
-  } else {
-    sleep (2);
-  }
-#endif
 
   return TRUE;
 }
 
+
+
 /*=============================================================================
-FUNCTION:            mfw_gst_v4lsrc_start
+FUNCTION:            mfw_gst_tvsrc_start
          
 DESCRIPTION:         this function is registered  with the Base Source Class of
                      the gstreamer to start the video capturing process 
@@ -1001,9 +782,9 @@ POST-CONDITIONS:    None
 IMPORTANT NOTES:    None
 =============================================================================*/
 static gboolean
-mfw_gst_v4lsrc_start (GstBaseSrc * src)
+mfw_gst_tvsrc_start (GstBaseSrc * src)
 {
-  MFWGstV4LSrc *v4l_src = MFW_GST_V4LSRC (src);
+  MFWGstTVSRC *v4l_src = MFW_GST_TVSRC (src);
   struct v4l2_format fmt;
   struct v4l2_framebuffer fb_v4l2;
   char fb_device[100] = "/dev/fb0";
@@ -1024,110 +805,19 @@ mfw_gst_v4lsrc_start (GstBaseSrc * src)
   int g_display_top = 0;
   int g_display_left = 0;
 
-  v4l_src->chipcode = getChipCode ();
-  v4l_src->fd_v4l = mfw_gst_v4lsrc_capture_setup (v4l_src);
+
+  if (v4l_src->tv_in) {
+    v4l_src->capture_width = 0;
+    v4l_src->capture_height = 0;
+    v4l_src->fps_n = 1;
+  }
+
+  v4l_src->fd_v4l = mfw_gst_tvsrc_capture_setup (v4l_src);
   if (v4l_src->fd_v4l <= 0) {
-    GST_ERROR ("v4lsrc:error in opening the device");
+    GST_ERROR ("TVSRC:error in opening the device");
     return FALSE;
   }
 
-  if (TRUE == v4l_src->preview) {
-    g_display_width = v4l_src->preview_width;
-    g_display_height = v4l_src->preview_height;
-    g_display_top = v4l_src->preview_top;
-    g_display_left = v4l_src->preview_left;
-    fmt.type = V4L2_BUF_TYPE_VIDEO_OVERLAY;
-    fmt.fmt.win.w.top = g_display_top;
-    fmt.fmt.win.w.left = g_display_left;
-    fmt.fmt.win.w.width = g_display_width;
-    fmt.fmt.win.w.height = g_display_height;
-
-    /* open the frame buffer to display the preview  */
-    if ((fd_fb = open (fb_device, O_RDWR)) < 0) {
-      GST_ERROR (">>V4L_SRC: Unable to open frame buffer");
-      return FALSE;
-    }
-
-    if (ioctl (fd_fb, FBIOGET_VSCREENINFO, &var) < 0) {
-      close (fd_fb);
-      return FALSE;
-    }
-    if (ioctl (fd_fb, FBIOGET_FSCREENINFO, &fix) < 0) {
-      close (fd_fb);
-      return FALSE;
-    }
-    if (strcmp (fix.id, "DISP3 BG - DI1") == 0)
-      v4l_src->g_display_lcd = 1;
-    else if (strcmp (fix.id, "DISP3 BG") == 0)
-      v4l_src->g_display_lcd = 0;
-
-    /* this function sets up the V4L for preview */
-    if (mfw_gst_v4lsrc_overlay_setup (v4l_src, &fmt) == FALSE) {
-      GST_ERROR (">>V4L_SRC: Setup overlay failed.");
-      return FALSE;
-    }
-
-
-    if (!v4l_src->bg) {
-      fb_v4l2.fmt.width = var.xres;
-      fb_v4l2.fmt.height = var.yres;
-      if (var.bits_per_pixel == 32) {
-        fb_v4l2.fmt.pixelformat = IPU_PIX_FMT_BGR32;
-        fb_v4l2.fmt.bytesperline = 4 * fb_v4l2.fmt.width;
-      } else if (var.bits_per_pixel == 24) {
-        fb_v4l2.fmt.pixelformat = IPU_PIX_FMT_BGR24;
-        fb_v4l2.fmt.bytesperline = 3 * fb_v4l2.fmt.width;
-      } else if (var.bits_per_pixel == 16) {
-        fb_v4l2.fmt.pixelformat = IPU_PIX_FMT_RGB565;
-        fb_v4l2.fmt.bytesperline = 2 * fb_v4l2.fmt.width;
-      }
-
-      fb_v4l2.flags = V4L2_FBUF_FLAG_PRIMARY;
-      fb_v4l2.base = (void *) fix.smem_start;
-    } else {
-      /* alpha blending in done in case of display happeing both in the 
-         back ground and foreground simultaneously */
-      alpha.alpha = 0;
-      alpha.enable = 1;
-      if (ioctl (fd_fb, MXCFB_SET_GBL_ALPHA, &alpha) < 0) {
-
-        GST_ERROR ("MXCFB_SET_GBL_ALPHA ioctl failed");
-        close (fd_fb);
-        return FALSE;
-      }
-
-      color_key.color_key = 0x00080808;
-      color_key.enable = 1;
-      if (ioctl (fd_fb, MXCFB_SET_CLR_KEY, &color_key) < 0) {
-        GST_ERROR ("MXCFB_SET_CLR_KEY ioctl failed");
-        close (fd_fb);
-        return FALSE;
-      }
-
-      if (ioctl (v4l_src->fd_v4l, VIDIOC_G_FBUF, &fb_v4l2) < 0) {
-        GST_ERROR (">>V4L_SRC: Get framebuffer failed");
-        return FALSE;
-      }
-      fb_v4l2.flags = V4L2_FBUF_FLAG_OVERLAY;
-    }
-
-    close (fd_fb);
-
-    if (ioctl (v4l_src->fd_v4l, VIDIOC_S_FBUF, &fb_v4l2) < 0) {
-      GST_ERROR (">>V4L_SRC: set framebuffer failed");
-      return FALSE;
-    }
-
-    if (ioctl (v4l_src->fd_v4l, VIDIOC_G_FBUF, &fb_v4l2) < 0) {
-      GST_ERROR (">>V4L_SRC: set framebuffer failed");
-      return FALSE;
-    }
-
-    GST_DEBUG ("frame buffer width %d, height %d, bytesperline %d",
-        fb_v4l2.fmt.width, fb_v4l2.fmt.height, fb_v4l2.fmt.bytesperline);
-
-
-  }
   fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   if (ioctl (v4l_src->fd_v4l, VIDIOC_G_FMT, &fmt) < 0) {
     GST_ERROR (">>V4L_SRC: get format failed");
@@ -1141,13 +831,9 @@ mfw_gst_v4lsrc_start (GstBaseSrc * src)
   }
 
 
-  if (mfw_gst_v4lsrc_start_capturing (v4l_src) < 0) {
+  if (mfw_gst_tvsrc_start_capturing (v4l_src) < 0) {
     GST_ERROR ("start_capturing failed");
     return FALSE;
-  }
-
-  if (TRUE == v4l_src->preview) {
-    mfw_gst_v4lsrc_start_preview (v4l_src->fd_v4l);
   }
 
   v4l_src->offset = 0;
@@ -1156,7 +842,7 @@ mfw_gst_v4lsrc_start (GstBaseSrc * src)
 
 
 /*=============================================================================
-FUNCTION:            mfw_gst_v4lsrc_stop
+FUNCTION:            mfw_gst_tvsrc_stop
          
 DESCRIPTION:         this function is registered  with the Base Source Class of
                      the gstreamer to stop the video capturing process 
@@ -1173,12 +859,13 @@ POST-CONDITIONS:    None
 IMPORTANT NOTES:    None
 =============================================================================*/
 static gboolean
-mfw_gst_v4lsrc_stop (GstBaseSrc * src)
+mfw_gst_tvsrc_stop (GstBaseSrc * src)
 {
-  MFWGstV4LSrc *v4l_src = MFW_GST_V4LSRC (src);
+  MFWGstTVSRC *v4l_src = MFW_GST_TVSRC (src);
   gint overlay = 0;
 
-  if (mfw_gst_v4lsrc_stop_capturing (v4l_src) < 0) {
+
+  if (mfw_gst_tvsrc_stop_capturing (v4l_src) < 0) {
     GST_ERROR (">>V4L_SRC: stop_capturing failed");
     return FALSE;
   }
@@ -1186,18 +873,71 @@ mfw_gst_v4lsrc_stop (GstBaseSrc * src)
   if (TRUE == v4l_src->preview) {
 
     if (ioctl (v4l_src->fd_v4l, VIDIOC_OVERLAY, &overlay) < 0) {
-      printf ("VIDIOC_OVERLAY stop failed\n");
+      g_print ("VIDIOC_OVERLAY stop failed\n");
       return FALSE;
     }
   }
   close (v4l_src->fd_v4l);
   v4l_src->fd_v4l = -1;
+  close (v4l_src->fd_v4l_out);
+  v4l_src->fd_v4l_out = -1;
   return TRUE;
 }
 
+static void
+mfw_gst_tvsrc_set_field (MFWGstTVSRC * v4l_src, guint v4l_field, GstBuffer * buf)
+{
+  if (!buf)
+    return;
+
+  if (v4l_field == V4L2_FIELD_NONE)
+    return;
+
+  GstCaps *caps = GST_BUFFER_CAPS (buf);
+  GstCaps *newcaps;
+  GstStructure *stru;
+  gint field = 0, gst_field = 0;
+  stru = gst_caps_get_structure (caps, 0);
+  gst_structure_get_int (stru, "field", &field);
+
+  if ( v4l_field == V4L2_FIELD_INTERLACED) {
+    if (v4l_src->id == V4L2_STD_NTSC) {
+      v4l_field = V4L2_FIELD_INTERLACED_BT;
+    } else {
+      v4l_field = V4L2_FIELD_INTERLACED_TB;
+    }
+  }
+
+  switch (v4l_field) {
+    case V4L2_FIELD_TOP:
+      gst_field = FIELD_TOP;
+      break;
+    case V4L2_FIELD_BOTTOM:
+      gst_field = FIELD_BOTTOM;
+      break;
+    case V4L2_FIELD_INTERLACED_TB:
+      gst_field = FIELD_INTERLACED_TB;
+      break;
+    case V4L2_FIELD_INTERLACED_BT:
+      gst_field = FIELD_INTERLACED_BT;
+      break;
+    default:
+      gst_field = V4L2_FIELD_NONE;
+      GST_WARNING("Field is not supported");
+      return;
+  }
+
+  if (field != gst_field) {
+    newcaps = gst_caps_copy (caps);
+    gst_caps_set_simple (newcaps, "field", G_TYPE_INT, gst_field, NULL);
+    gst_buffer_set_caps (buf, newcaps);
+    gst_caps_unref (newcaps);
+  }
+
+}
 
 /*=============================================================================
-FUNCTION:           mfw_gst_v4lsrc_buffer_new
+FUNCTION:           mfw_gst_tvsrc_buffer_new
          
 DESCRIPTION:        This function is used to store the frames captured by the
                     V4L capture driver
@@ -1211,7 +951,7 @@ POST-CONDITIONS:    None
 IMPORTANT NOTES:    None
 =============================================================================*/
 static GstBuffer *
-mfw_gst_v4lsrc_buffer_new (MFWGstV4LSrc * v4l_src)
+mfw_gst_tvsrc_buffer_new (MFWGstTVSRC * v4l_src)
 {
   GstBuffer *buf;
   gint fps_n, fps_d;
@@ -1261,6 +1001,10 @@ mfw_gst_v4lsrc_buffer_new (MFWGstV4LSrc * v4l_src)
   GST_LOG ("v4l dequeued buffer index:%d(ref %d), num in pool:%d", v4lbuf.index,
       buf->mini_object.refcount, g_list_length (v4l_src->free_pool));
 
+  if (v4l_src->preview) {
+
+  }
+
   GST_BUFFER_SIZE (buf) = v4l_src->buffer_size;
 
   ts = gst_clock_get_time (GST_ELEMENT (v4l_src)->clock);
@@ -1281,17 +1025,19 @@ mfw_gst_v4lsrc_buffer_new (MFWGstV4LSrc * v4l_src)
       num_frame_delay++;
     }
     if (num_frame_delay > 1)
-      GST_LOG (">>V4L_SRC: Camera ts late by %d frames", num_frame_delay);
+      GST_DEBUG (">>V4L_SRC: Camera ts late by %d frames", num_frame_delay);
   }
   v4l_src->last_ts = ts;
 
   gst_buffer_set_caps (buf, GST_PAD_CAPS (GST_BASE_SRC_PAD (v4l_src)));
+  mfw_gst_tvsrc_set_field (v4l_src, v4lbuf.field, buf);
+
   return buf;
 }
 
 
 /*=============================================================================
-FUNCTION:            mfw_gst_v4lsrc_create
+FUNCTION:            mfw_gst_tvsrc_create
          
 DESCRIPTION:         This function is registered with the Base Source Class 
                      This function updates the the buffer to be pushed to the
@@ -1303,16 +1049,16 @@ ARGUMENTS PASSED:    v4l_src     -
 RETURN VALUE:        
               GST_FLOW_OK       -    buffer create successfull.
               GST_FLOW_ERROR    -    Error in buffer creation.
-
+        
 PRE-CONDITIONS:     None
 POST-CONDITIONS:    None
 IMPORTANT NOTES:    None
 =============================================================================*/
 static GstFlowReturn
-mfw_gst_v4lsrc_create (GstPushSrc * src, GstBuffer ** buf)
+mfw_gst_tvsrc_create (GstPushSrc * src, GstBuffer ** buf)
 {
-  MFWGstV4LSrc *v4l_src = MFW_GST_V4LSRC (src);
-  *buf = mfw_gst_v4lsrc_buffer_new (v4l_src);
+  MFWGstTVSRC *v4l_src = MFW_GST_TVSRC (src);
+  *buf = mfw_gst_tvsrc_buffer_new (v4l_src);
   if (*buf == NULL)
     return GST_FLOW_ERROR;
   else
@@ -1321,10 +1067,10 @@ mfw_gst_v4lsrc_create (GstPushSrc * src, GstBuffer ** buf)
 }
 
 /*=============================================================================
-FUNCTION:            mfw_gst_v4lsrc_unlock
+FUNCTION:            mfw_gst_tvsrc_unlock
          
 DESCRIPTION:         this function is registered  with the Base Source Class of
-                     the gstreamer to unlock any block in mfw_gst_v4lsrc_create
+                     the gstreamer to unlock any block in mfw_gst_tvsrc_create
                      by this function
 
 ARGUMENTS PASSED:    
@@ -1338,16 +1084,16 @@ POST-CONDITIONS:    None
 IMPORTANT NOTES:    None
 =============================================================================*/
 static gboolean
-mfw_gst_v4lsrc_unlock (GstBaseSrc * src)
+mfw_gst_tvsrc_unlock (GstBaseSrc * src)
 {
-  MFWGstV4LSrc *v4l_src = MFW_GST_V4LSRC (src);
+  MFWGstTVSRC *v4l_src = MFW_GST_TVSRC (src);
   v4l_src->stop = TRUE;
 
   return TRUE;
 }
 
 /*=============================================================================
-FUNCTION:   mfw_gst_v4lsrc_change_state
+FUNCTION:   mfw_gst_tvsrc_change_state
 
 DESCRIPTION: this function keeps track of different states of pipeline.
 
@@ -1372,11 +1118,11 @@ IMPORTANT NOTES:
         None
 =============================================================================*/
 static GstStateChangeReturn
-mfw_gst_v4lsrc_change_state(GstElement* element, GstStateChange transition)
+mfw_gst_tvsrc_change_state(GstElement* element, GstStateChange transition)
 {
     
     GstStateChangeReturn retstate = GST_STATE_CHANGE_FAILURE;
-    MFWGstV4LSrc *v4l_src = MFW_GST_V4LSRC (element);
+    MFWGstTVSRC *v4l_src = MFW_GST_TVSRC (element);
        
     switch (transition)
     {
@@ -1416,7 +1162,7 @@ mfw_gst_v4lsrc_change_state(GstElement* element, GstStateChange transition)
 }
 
 /*=============================================================================
-FUNCTION:            mfw_gst_v4lsrc_get_caps
+FUNCTION:            mfw_gst_tvsrc_get_caps
          
 DESCRIPTION:         This function gets the caps to be set on the source pad.
                      
@@ -1431,20 +1177,17 @@ POST-CONDITIONS:    None
 IMPORTANT NOTES:    None
 =============================================================================*/
 static GstCaps *
-mfw_gst_v4lsrc_get_caps (GstBaseSrc * src)
+mfw_gst_tvsrc_get_caps (GstBaseSrc * src)
 {
   GstCaps *list;
-  MFWGstV4LSrc *v4l_src = MFW_GST_V4LSRC (src);
+  MFWGstTVSRC *v4l_src = MFW_GST_TVSRC (src);
   GstCaps *capslist;
   GstPadTemplate *src_template = NULL;
   gint i;
-#ifndef MX51
-  guint32 format = GST_MAKE_FOURCC ('I', '4', '2', '0');
-  if (IS_PXP (v4l_src->chipcode)) {
-      format = GST_MAKE_FOURCC ('U', 'Y', 'V', 'Y');
-  }
-#else
+#if (defined (MX51) || (defined(MX6)))
   guint32 format = GST_MAKE_FOURCC ('N', 'V', '1', '2');
+#else
+  guint32 format = GST_MAKE_FOURCC ('I', '4', '2', '0');
 #endif
 
   capslist = gst_caps_new_empty ();
@@ -1469,7 +1212,7 @@ mfw_gst_v4lsrc_get_caps (GstBaseSrc * src)
 
 
 /*=============================================================================
-FUNCTION:            mfw_gst_v4lsrc_fixate
+FUNCTION:            mfw_gst_tvsrc_fixate
          
 DESCRIPTION:         Fixes the Caps on the source pad
                      
@@ -1482,19 +1225,16 @@ POST-CONDITIONS:     None
 IMPORTANT NOTES:     None
 =============================================================================*/
 static void
-mfw_gst_v4lsrc_fixate (GstPad * pad, GstCaps * caps)
+mfw_gst_tvsrc_fixate (GstPad * pad, GstCaps * caps)
 {
 
   gint i = 0;
   GstStructure *structure = NULL;
-  MFWGstV4LSrc *v4l_src = MFW_GST_V4LSRC (gst_pad_get_parent (pad));
-#ifndef MX51
-  guint32 fourcc = GST_MAKE_FOURCC ('I', '4', '2', '0');
-  if (IS_PXP (v4l_src->chipcode)) {
-      fourcc = GST_MAKE_FOURCC ('U', 'Y', 'V', 'Y');
-  }
-#else
+  MFWGstTVSRC *v4l_src = MFW_GST_TVSRC (gst_pad_get_parent (pad));
+#if (defined (MX51) || (defined(MX6)))
   guint32 fourcc = GST_MAKE_FOURCC ('N', 'V', '1', '2');
+#else
+  guint32 fourcc = GST_MAKE_FOURCC ('I', '4', '2', '0');
 #endif
 
   const GValue *v = NULL;
@@ -1518,14 +1258,14 @@ mfw_gst_v4lsrc_fixate (GstPad * pad, GstCaps * caps)
 }
 
 /*=============================================================================
-FUNCTION:   mfw_gst_v4lsrc_init   
+FUNCTION:   mfw_gst_tvsrc_init   
         
 DESCRIPTION:     create the pad template that has been registered with the 
                 element class in the _base_init and do library table 
                 initialization      
 
 ARGUMENTS PASSED:
-        context  -    pointer to v4lsrc element structure      
+        context  -    pointer to TVSRC element structure      
   
 RETURN VALUE:       None
       
@@ -1535,7 +1275,7 @@ POST-CONDITIONS:    None
 IMPORTANT NOTES:    None
 =============================================================================*/
 static void
-mfw_gst_v4lsrc_init (MFWGstV4LSrc * v4l_src, MFWGstV4LSrcClass * klass)
+mfw_gst_tvsrc_init (MFWGstTVSRC * v4l_src, MFWGstTVSRCClass * klass)
 {
   v4l_src->capture_width = 176;
   v4l_src->capture_height = 144;
@@ -1554,13 +1294,19 @@ mfw_gst_v4lsrc_init (MFWGstV4LSrc * v4l_src, MFWGstV4LSrcClass * klass)
   v4l_src->preview_left = 0;
   v4l_src->sensor_width = 1280;
   v4l_src->sensor_height = 1024;
-  v4l_src->input = 1;
   v4l_src->capture_mode = 0;
   v4l_src->bg = FALSE;
   v4l_src->g_display_lcd = 0;
   v4l_src->queue_size = DEFAULT_QUEUE_SIZE;
   v4l_src->start = FALSE;
   v4l_src->stop = FALSE;
+  v4l_src->tv_in = TRUE;        /* */
+  if (v4l_src->tv_in) {
+    v4l_src->capture_width = 0;
+    v4l_src->capture_height = 0;
+    v4l_src->fps_n = 1;
+    v4l_src->g_display_lcd = 3;
+  }
 #ifdef MX27
   v4l_src->devicename = g_strdup ("/dev/v4l/video0");
 #else
@@ -1569,16 +1315,16 @@ mfw_gst_v4lsrc_init (MFWGstV4LSrc * v4l_src, MFWGstV4LSrcClass * klass)
   v4l_src->buf_pools = g_malloc (sizeof (GstBuffer *) * v4l_src->queue_size);
 
   gst_pad_set_fixatecaps_function (GST_BASE_SRC_PAD (v4l_src),
-      mfw_gst_v4lsrc_fixate);
+      mfw_gst_tvsrc_fixate);
   gst_base_src_set_live (GST_BASE_SRC (v4l_src), TRUE);
 
-#define MFW_GST_V4LSRC_PLUGIN VERSION
-  PRINT_PLUGIN_VERSION (MFW_GST_V4LSRC_PLUGIN);
+#define MFW_GST_tvsrc_PLUGIN VERSION
+  PRINT_PLUGIN_VERSION (MFW_GST_tvsrc_PLUGIN);
   return;
 }
 
 /*=============================================================================
-FUNCTION:   mfw_gst_v4lsrc_class_init    
+FUNCTION:   mfw_gst_tvsrc_class_init    
         
 DESCRIPTION:     Initialise the class only once (specifying what signals,
                 arguments and virtual functions the class has and setting up 
@@ -1594,7 +1340,7 @@ POST-CONDITIONS:     None
 IMPORTANT NOTES:     None
 =============================================================================*/
 static void
-mfw_gst_v4lsrc_class_init (MFWGstV4LSrcClass * klass)
+mfw_gst_tvsrc_class_init (MFWGstTVSRCClass * klass)
 {
 
   GObjectClass *gobject_class;
@@ -1608,137 +1354,23 @@ mfw_gst_v4lsrc_class_init (MFWGstV4LSrcClass * klass)
   pushsrc_class = (GstPushSrcClass *) klass;
 
 
-  gobject_class->set_property = mfw_gst_v4lsrc_set_property;
-  gobject_class->get_property = mfw_gst_v4lsrc_get_property;
-  element_class->change_state = mfw_gst_v4lsrc_change_state;
-
-#if 0
-  g_object_class_install_property (gobject_class, MFW_V4L_SRC_WIDTH,
-      g_param_spec_int ("capture-width",
-          "capture_width",
-          "*important*: gets the width of the image to be captured, "
-          "this value must be compatible with capture mode",
-          16, G_MAXINT, 640, G_PARAM_READWRITE));
-
-  g_object_class_install_property (gobject_class, MFW_V4L_SRC_HEIGHT,
-      g_param_spec_int ("capture-height",
-          "capture_height",
-          "*important*: gets the height of the image to be captured, "
-          "this value must be compatible with capture mode",
-          16, G_MAXINT, 480, G_PARAM_READWRITE));
-#endif
-  g_object_class_install_property (gobject_class, MFW_V4L_SRC_CAPTURE_MODE,
-      g_param_spec_int ("capture-mode",
-          "capture mode",
-          "set the capture mode of camera, please check the bsp release "
-          "notes to decide which value can be applied, \n\t\t\t\tfor example "
-          "ov5460:  \n   "
-          "\t\t\t\tov5640_mode_VGA_640_480 = 0,\n"
-          "\t\t\t\tov5640_mode_QVGA_320_240 = 1,\n"
-          "\t\t\t\tov5640_mode_NTSC_720_480 = 2,\n"
-          "\t\t\t\tov5640_mode_PAL_720_576 = 3,\n"
-          "\t\t\t\tov5640_mode_720P_1280_720 = 4,\n"
-          "\t\t\t\tov5640_mode_1080P_1920_1080 = 5",
-          0, G_MAXINT, 0, G_PARAM_READWRITE));
-
-  g_object_class_install_property (gobject_class, MFW_V4L_SRC_INPUT,
-      g_param_spec_int ("input",
-          "input",
-          "set input of camera, please check the bsp release",
-          0, G_MAXINT, 1, G_PARAM_READWRITE));
-
-
-  g_object_class_install_property (gobject_class, MFW_V4L_SRC_PREVIEW_WIDTH,
-      g_param_spec_int ("preview-width",
-          "preview_width",
-          "gets the width of the image to be displayed for preview. \n"
-          "\t\t\tNote:property is valid only when preview property is enabled",
-          16, 1920, 176, G_PARAM_READWRITE));
-
-  g_object_class_install_property (gobject_class, MFW_V4L_SRC_PREVIEW_HEIGHT,
-      g_param_spec_int ("preview-height",
-          "preview_height",
-          "gets the height of the image to be displayed for preview. \n"
-          "\t\t\tNote:property is valid only when preview property is enabled",
-          16, 1080, 144, G_PARAM_READWRITE));
-
-  g_object_class_install_property (gobject_class, MFW_V4L_SRC_PREVIEW_TOP,
-      g_param_spec_int ("preview-top",
-          "preview_top",
-          "gets the top pixel offset at which the preview should start. \n"
-          "\t\t\tNote:property is valid only when preview property is enabled",
-          0, 320, 0, G_PARAM_READWRITE));
-
-  g_object_class_install_property (gobject_class, MFW_V4L_SRC_PREVIEW_LEFT,
-      g_param_spec_int ("preview-left",
-          "preview_left",
-          "gets the left pixel offset at which the preview should start. \n"
-          "\t\t\tNote:property is valid only when preview property is enabled",
-          0, 240, 0, G_PARAM_READWRITE));
-
-
-  /* 
-   * FixME: The overlay channel will cause v4l error:
-   * v4l2 capture: mxc_v4l_dqueue timeout enc_counter 0 error 
-   * disable it 
-   */
-  g_object_class_install_property (gobject_class, MFW_V4L_SRC_PREVIEW,
-      g_param_spec_boolean ("preview", "Preview",
-          "enable the preview of capture, it will directly pass the data to display",
-          FALSE, G_PARAM_READABLE));
-
-
-
-  g_object_class_install_property (gobject_class, MFW_V4L_SRC_ROTATE,
-      g_param_spec_int ("rotate",
-          "Rotate",
-          "gets the values by which the camera rotation angle can "
-          "be specified. \n\t\t\tRotation angles "
-          "for different values are as follows: \n"
-          "\t\t\t\trotate=1:Vertical flip \n"
-          "\t\t\t\trotate=2:Horizontal flip \n"
-          "\t\t\t\trotate=3:180 degree rotation \n"
-          "\t\t\t\trotate=4:90 degree rotation clockwise \n"
-          "\t\t\t\trotate=5:90 degree rotation clockwise and vertical flip \n"
-          "\t\t\t\trotate=6:90 degree rotation clockwise and horizontal flip \n"
-          "\t\t\t\trotate=7:90 degree rotation counter-clockwise\n",
-          0, 7, 0, G_PARAM_READWRITE));
-
-  g_object_class_install_property (gobject_class, MFW_V4L_SRC_CROP_PIXEL,
-      g_param_spec_int ("crop-by-pixel",
-          "crop_by_pixel",
-          "gets the number of pixels by which the image "
-          "is to be cropped on either sides for capture ",
-          0, G_MAXINT, 0, G_PARAM_READWRITE));
+  gobject_class->set_property = mfw_gst_tvsrc_set_property;
+  gobject_class->get_property = mfw_gst_tvsrc_get_property;
+  element_class->change_state = mfw_gst_tvsrc_change_state;
 
   g_object_class_install_property (gobject_class, MFW_V4L_SRC_FRAMERATE_NUM,
       g_param_spec_int ("fps-n",
           "fps_n",
           "gets the numerator of the framerate at which"
           "the input stream is to be captured",
-          0, G_MAXINT, 0, G_PARAM_READWRITE));
+          0, G_MAXINT, 0, G_PARAM_READABLE));
 
   g_object_class_install_property (gobject_class, MFW_V4L_SRC_FRAMERATE_DEN,
       g_param_spec_int ("fps-d",
           "fps_d",
           "gets the denominator of the framerate at which"
           "the input stream is to be captured",
-          1, G_MAXINT, 1, G_PARAM_READWRITE));
-#if 0
-  g_object_class_install_property (gobject_class, MFW_V4L_SRC_SENSOR_WIDTH,
-      g_param_spec_int ("sensor-width",
-          "sensor_width",
-          "gets the width of the sensor",
-          16, G_MAXINT, 1280, G_PARAM_READWRITE));
-  g_object_class_install_property (gobject_class, MFW_V4L_SRC_SENSOR_HEIGHT,
-      g_param_spec_int ("sensor-height",
-          "sensor_height",
-          "gets the height of the sensor",
-          16, G_MAXINT, 1024, G_PARAM_READWRITE));
-#endif
-  g_object_class_install_property (gobject_class, MFW_V4L_SRC_BACKGROUND,
-      g_param_spec_boolean ("bg", "BG display",
-          "Set BG display or FG display", FALSE, G_PARAM_READWRITE));
+          1, G_MAXINT, 1, G_PARAM_READABLE));
 
   g_object_class_install_property (gobject_class, MFW_V4L_SRC_DEVICE,
       g_param_spec_string ("device", "Device", "Device location",
@@ -1749,18 +1381,18 @@ mfw_gst_v4lsrc_class_init (MFWGstV4LSrcClass * klass)
           "queue-size",
           "v4l2 request buffer number", 0, G_MAXINT, 5, G_PARAM_READWRITE));
 
-  basesrc_class->get_caps = mfw_gst_v4lsrc_get_caps;
-  basesrc_class->set_caps = mfw_gst_v4lsrc_set_caps;
-  basesrc_class->start = mfw_gst_v4lsrc_start;
-  basesrc_class->stop = mfw_gst_v4lsrc_stop;
-  basesrc_class->unlock = mfw_gst_v4lsrc_unlock;
-  pushsrc_class->create = mfw_gst_v4lsrc_create;
+  basesrc_class->get_caps = mfw_gst_tvsrc_get_caps;
+  basesrc_class->set_caps = mfw_gst_tvsrc_set_caps;
+  basesrc_class->start = mfw_gst_tvsrc_start;
+  basesrc_class->stop = mfw_gst_tvsrc_stop;
+  basesrc_class->unlock = mfw_gst_tvsrc_unlock;
+  pushsrc_class->create = mfw_gst_tvsrc_create;
   return;
 }
 
 
 /*=============================================================================
-FUNCTION:   mfw_gst_v4lsrc_base_init   
+FUNCTION:   mfw_gst_tvsrc_base_init   
         
 DESCRIPTION:     v4l source element details are registered with the plugin during
                 _base_init ,This function will initialise the class and child 
@@ -1775,20 +1407,20 @@ POST-CONDITIONS:     None
 IMPORTANT NOTES:     None
 =============================================================================*/
 static void
-mfw_gst_v4lsrc_base_init (gpointer g_class)
+mfw_gst_tvsrc_base_init (gpointer g_class)
 {
 
   GstElementClass *element_class = GST_ELEMENT_CLASS (g_class);
 
-  FSL_GST_ELEMENT_SET_DETAIL_SIMPLE (element_class, "v4l2 based camera src",
-      "Src/Video", "Capture videos by using csi camera");
+  FSL_GST_ELEMENT_SET_DETAIL_SIMPLE (element_class, "v4l2 based tv src",
+      "Src/Video", "Capture by using tv-in");
 
   gst_element_class_add_pad_template (element_class,
       gst_pad_template_new ("src", GST_PAD_SRC, GST_PAD_ALWAYS,
           gst_caps_new_any ()));
 
-  GST_DEBUG_CATEGORY_INIT (mfw_gst_v4lsrc_debug, "mfw_v4lsrc", 0,
-      "V4L2 video src element");
+  GST_DEBUG_CATEGORY_INIT (mfw_gst_tvsrc_debug, "tvsrc", 0,
+      "V4L2 tv src element");
 
   return;
 }
@@ -1815,8 +1447,8 @@ IMPORTANT NOTES:     None
 static gboolean
 plugin_init (GstPlugin * plugin)
 {
-  if (!gst_element_register (plugin, "mfw_v4lsrc", GST_RANK_PRIMARY,
-          MFW_GST_TYPE_V4LSRC))
+  if (!gst_element_register (plugin, "tvsrc", GST_RANK_PRIMARY,
+          MFW_GST_TYPE_TVSRC))
     return FALSE;
 
   return TRUE;
@@ -1826,5 +1458,4 @@ plugin_init (GstPlugin * plugin)
 /*    This is used to define the entry point and meta data of plugin         */
 /*****************************************************************************/
 
-FSL_GST_PLUGIN_DEFINE ("v4lsrc", "v4l2-based csi camera video src",
-    plugin_init);
+FSL_GST_PLUGIN_DEFINE ("tvsrc", "v4l2-based tv src", plugin_init);
